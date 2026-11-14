@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ATHANOR video cards</title>
+<!--
+  Title cards for the demo video, rendered to 1920x1080 PNGs by render-cards.mjs.
+  One card per ?card=<id>. Kept as HTML rather than a motion-graphics dependency
+  so the typography matches the product's own UI exactly.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #06070a;
+    --fg: #f4f7fa;
+    --dim: #76818f;
+    --accent: #7dd3fc;
+    --refuted: #f87171;
+    --supported: #34d399;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; background: var(--bg); color: var(--fg);
+    font-family: Inter, system-ui, sans-serif; overflow: hidden; }
+  body { display: grid; place-items: center; }
+
+  .card { display: none; width: 1920px; height: 1080px; position: relative; }
+  .card.on { display: grid; }
+
+  /* A faint grid + vignette, so a full-bleed card doesn't read as flat black. */
+  .grid-bg::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(125,211,252,.055) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(125,211,252,.055) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 72% 62% at 50% 48%, #000 35%, transparent 78%);
+  }
+  .card::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 85% 70% at 50% 45%, transparent 48%, rgba(0,0,0,.72));
+  }
+  .inner { position: relative; z-index: 2; place-self: center; text-align: center; padding: 0 140px; }
+
+  /* ---- title ---- */
+  .wordmark { font-size: 148px; font-weight: 700; letter-spacing: .20em; line-height: 1;
+    text-indent: .20em; }
+  .rule { width: 190px; height: 2px; background: var(--accent); margin: 52px auto 46px; opacity: .85; }
+  .tagline { font-size: 40px; font-weight: 300; color: #c9d4e0; line-height: 1.45; max-width: 1180px;
+    margin: 0 auto; }
+  .tagline b { font-weight: 600; color: #fff; }
+
+  /* ---- section ---- */
+  .kicker { font-family: "JetBrains Mono", monospace; font-size: 23px; letter-spacing: .34em;
+    text-transform: uppercase; color: var(--accent); opacity: .8; margin-bottom: 36px; }
+  .headline { font-size: 94px; font-weight: 600; letter-spacing: -.022em; line-height: 1.1; }
+  .sub { font-size: 34px; font-weight: 300; color: var(--dim); margin-top: 36px; line-height: 1.45; }
+
+  /* ---- tech card ---- */
+  .tech { place-self: center; width: 1560px; }
+  .tech h3 { font-family: "JetBrains Mono", monospace; font-size: 21px; letter-spacing: .32em;
+    text-transform: uppercase; color: var(--accent); opacity: .8; margin-bottom: 64px; text-align: center; }
+  .tech-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;
+    background: #141a22; border: 1px solid #141a22; border-radius: 12px; overflow: hidden; }
+  .tech-item { background: #0a0d12; padding: 44px 40px; }
+  .tech-item .n { font-size: 36px; font-weight: 600; letter-spacing: -.015em; }
+  .tech-item .r { font-size: 23px; color: var(--dim); margin-top: 14px; font-weight: 300; line-height: 1.4; }
+
+  /* ---- stat / verdict ---- */
+  .stat { font-size: 230px; font-weight: 700; letter-spacing: -.045em; line-height: .92;
+    font-variant-numeric: tabular-nums; }
+  .stat small { font-size: 78px; font-weight: 400; color: var(--dim); letter-spacing: -.01em; }
+  .stat-label { font-size: 34px; color: var(--dim); margin-top: 40px; font-weight: 300; }
+  .verdict { display: inline-block; font-family: "JetBrains Mono", monospace; font-size: 86px;
+    font-weight: 500; letter-spacing: .14em; color: var(--refuted);
+    border: 3px solid var(--refuted); border-radius: 14px; padding: 26px 56px 30px;
+    background: rgba(248,113,113,.07); text-indent: .14em; }
+
+  /* ---- lower third ---- */
+  .lower { place-self: end start; margin: 0 0 118px 118px; text-align: left;
+    border-left: 3px solid var(--accent); padding: 8px 0 10px 32px; }
+  .lower .role { font-family: "JetBrains Mono", monospace; font-size: 22px; letter-spacing: .3em;
+    text-transform: uppercase; color: var(--accent); opacity: .85; }
+  .lower .what { font-size: 56px; font-weight: 600; margin-top: 16px; letter-spacing: -.015em; }
+  .lower .model { font-size: 27px; color: var(--dim); margin-top: 12px; font-weight: 300; }
+  /* Lower thirds composite over footage, so they need a transparent background. */
+  body.transparent, body.transparent .card { background: transparent; }
+  body.transparent .card::after, body.transparent .grid-bg::before { display: none; }
+
+  /* ---- closing ---- */
+  .repo { font-family: "JetBrains Mono", monospace; font-size: 36px; color: var(--accent);
+    margin-top: 56px; letter-spacing: .02em; }
+</style>
+</head>
+<body>
+
+<!-- 1 · cold open -->
+<div class="card grid-bg" data-card="title">
+  <div class="inner">
+    <div class="wordmark">ATHANOR</div>
+    <div class="rule"></div>
+    <div class="tagline">An agentic platform that runs scientific research campaigns<br>— and tries to <b>refute its own hypotheses</b>.</div>
+  </div>
+</div>
+
+<!-- 2 · problem -->
+<div class="card grid-bg" data-card="problem">
+  <div class="inner">
+    <div class="kicker">The problem</div>
+    <div class="headline">Plausible is not the same<br>as true.</div>
+    <div class="sub">Generative models propose candidates faster than anyone can check them —<br>and they don't know when they're extrapolating.</div>
+  </div>
+</div>
+
+<!-- 3 · DFT cost -->
+<div class="card grid-bg" data-card="cost">
+  <div class="inner">
+    <div class="stat">420<small> CPU-hours</small></div>
+    <div class="stat-label">what one candidate costs by density functional theory</div>
+  </div>
+</div>
+
+<!-- 4 · the loop -->
+<div class="card grid-bg" data-card="loop">
+  <div class="inner">
+    <div class="kicker">The idea</div>
+    <div class="headline">Hypothesize. Test.<br>Refute. Learn.</div>
+    <div class="sub">A result you can't falsify isn't a result.</div>
+  </div>
+</div>
+
+<!-- 5 · technology -->
+<div class="card grid-bg" data-card="tech">
+  <div class="tech">
+    <h3>Built with</h3>
+    <div class="tech-grid">
+      <div class="tech-item"><div class="n">Claude Opus 5.5</div><div class="r">Strategist · Skeptic · Analyst</div></div>
+      <div class="tech-item"><div class="n">MACE-MP-0</div><div class="r">Machine-learned interatomic potential</div></div>
+      <div class="tech-item"><div class="n">Meta FAIR</div><div class="r">Open Catalyst · framework adsorption</div></div>
+      <div class="tech-item"><div class="n">GFN2-xTB</div><div class="r">Semi-empirical quantum chemistry</div></div>
+      <div class="tech-item"><div class="n">Materials Project</div><div class="r">Experimentally grounded structures</div></div>
+      <div class="tech-item"><div class="n">React Three Fiber</div><div class="r">Single 3D rendering substrate</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 6 · the refutation beat -->
+<div class="card grid-bg" data-card="refuted">
+  <div class="inner">
+    <div class="verdict">REFUTED</div>
+    <div class="stat-label" style="margin-top:56px">judged against the criterion it set for itself<br>before seeing any data</div>
+  </div>
+</div>
+
+<!-- 7 · validated barrier -->
+<div class="card grid-bg" data-card="barrier">
+  <div class="inner">
+    <div class="stat">0.280<small> eV</small></div>
+    <div class="stat-label">computed Li migration barrier in Li<sub>3</sub>PS<sub>4</sub><br>
+      <span style="color:var(--supported)">published range 0.2 – 0.5 eV</span></div>
+  </div>
+</div>
+
+<!-- 8 · close -->
+<div class="card grid-bg" data-card="close">
+  <div class="inner">
+    <div class="wordmark" style="font-size:112px">ATHANOR</div>
+    <div class="rule"></div>
+    <div class="tagline">Hypothesize. Test. Refute. Learn.<br><b>Open source — and it all ran on a laptop.</b></div>
+    <div class="repo">github.com/dylancc5/athanor</div>
+  </div>
+</div>
+
+<!-- lower thirds (transparent; composite over footage) -->
+<div class="card" data-card="lt-strategist" data-transparent="1">
+  <div class="inner lower"><div class="role">Agent 01</div><div class="what">Strategist</div>
+    <div class="model">Writes a hypothesis with an explicit falsification criterion</div></div>
+</div>
+<div class="card" data-card="lt-generator" data-transparent="1">
+  <div class="inner lower"><div class="role">Agent 02</div><div class="what">Generator</div>
+    <div class="model">Retrieval seeds plus targeted perturbations</div></div>
+</div>
+<div class="card" data-card="lt-skeptic" data-transparent="1">
+  <div class="inner lower"><div class="role">Agent 03</div><div class="what">Skeptic</div>
+    <div class="model">Vetoes the unsynthesizable and the out-of-distribution</div></div>
+</div>
+<div class="card" data-card="lt-analyst" data-transparent="1">
+  <div class="inner lower"><div class="role">Agent 04</div><div class="what">Analyst</div>
+    <div class="model">Judges the hypothesis against its own stated criterion</div></div>
+</div>
+
+<script>
+  const want = new URLSearchParams(location.search).get("card") || "title";
+  const el = document.querySelector(`.card[data-card="${CSS.escape(want)}"]`);
+  if (el) {
+    el.classList.add("on");
+    if (el.dataset.transparent) document.body.classList.add("transparent");
+  }
+  // render-cards.mjs waits on this to avoid screenshotting a half-loaded webfont.
+  document.fonts.ready.then(() => { window.__cardReady = !!el; });
+  window.__cardIds = [...document.querySelectorAll(".card")].map(c => c.dataset.card);
+</script>
+</body>
+</html>
