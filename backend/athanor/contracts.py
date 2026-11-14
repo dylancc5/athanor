@@ -93,7 +93,6 @@ class Artifact(Model):
       neb_path:              {symbols[], cell, frames[...], energies[], mobile_index, barrier_ev}
       void_grid:             {cell, shape[3], values[] (flat, 0..1), void_fraction, pore_diameter_A}
       adsorption_sites:      {symbols[], cell, positions[], guests[{symbols[],positions[],energy_ev}]}
-      complex:               {pdb, ligand_resname, pocket_residues[], affinity?}
       crystal_packing:       {symbols[], cell, positions[], molecules[[atom indices]]}
       orbital:               {symbols[], positions[], grid{origin,axes,shape,values[]}, which}
     """
@@ -105,7 +104,6 @@ class Artifact(Model):
         "neb_path",
         "void_grid",
         "adsorption_sites",
-        "complex",
         "crystal_packing",
         "orbital",
     ]

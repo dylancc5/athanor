@@ -1,0 +1,1481 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AnalystVerdict": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "heuristics": {
+          "items": {
+            "$ref": "#/definitions/Heuristic"
+          },
+          "title": "Heuristics",
+          "type": "array"
+        },
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "reasoning": {
+          "title": "Reasoning",
+          "type": "string"
+        },
+        "type": {
+          "const": "analyst.verdict",
+          "default": "analyst.verdict",
+          "title": "Type",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "SUPPORTED",
+            "REFUTED",
+            "INCONCLUSIVE"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hypothesis_id",
+        "verdict",
+        "reasoning",
+        "evidence",
+        "heuristics",
+        "type"
+      ],
+      "title": "AnalystVerdict",
+      "type": "object"
+    },
+    "Artifact": {
+      "additionalProperties": false,
+      "description": "Heavy visual payload attached to a candidate (kept out of the event log).\n\nStored as JSON at `<campaign_dir>/artifacts/<id>.json`; events carry only\nthis descriptor. Payload shapes by kind:\n  relaxation_trajectory: {symbols[], cell[3][3]|null, pbc, frames[[x,y,z]...], energies[]}\n  neb_path:              {symbols[], cell, frames[...], energies[], mobile_index, barrier_ev}\n  void_grid:             {cell, shape[3], values[] (flat, 0..1), void_fraction, pore_diameter_A}\n  adsorption_sites:      {symbols[], cell, positions[], guests[{symbols[],positions[],energy_ev}]}\n  crystal_packing:       {symbols[], cell, positions[], molecules[[atom indices]]}\n  orbital:               {symbols[], positions[], grid{origin,axes,shape,values[]}, which}",
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "relaxation_trajectory",
+            "neb_path",
+            "void_grid",
+            "adsorption_sites",
+            "crystal_packing",
+            "orbital"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "candidate_id",
+        "kind",
+        "label",
+        "uri"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "ArtifactCreated": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/Artifact"
+        },
+        "type": {
+          "const": "artifact.created",
+          "default": "artifact.created",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "type"
+      ],
+      "title": "ArtifactCreated",
+      "type": "object"
+    },
+    "BatchPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "n_candidates": {
+          "title": "N Candidates",
+          "type": "integer"
+        },
+        "properties": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Properties",
+          "type": "array"
+        },
+        "strategy": {
+          "title": "Strategy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "n_candidates",
+        "strategy",
+        "properties"
+      ],
+      "title": "BatchPlan",
+      "type": "object"
+    },
+    "CampaignCompleted": {
+      "additionalProperties": false,
+      "properties": {
+        "rounds": {
+          "title": "Rounds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "campaign.completed",
+          "default": "campaign.completed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rounds",
+        "type"
+      ],
+      "title": "CampaignCompleted",
+      "type": "object"
+    },
+    "CampaignError": {
+      "additionalProperties": false,
+      "properties": {
+        "fatal": {
+          "title": "Fatal",
+          "type": "boolean"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "type": {
+          "const": "campaign.error",
+          "default": "campaign.error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "message",
+        "fatal",
+        "type"
+      ],
+      "title": "CampaignError",
+      "type": "object"
+    },
+    "CampaignStarted": {
+      "additionalProperties": false,
+      "properties": {
+        "goal": {
+          "title": "Goal",
+          "type": "string"
+        },
+        "recorded": {
+          "default": false,
+          "title": "Recorded",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "campaign.started",
+          "default": "campaign.started",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "goal",
+        "type"
+      ],
+      "title": "CampaignStarted",
+      "type": "object"
+    },
+    "Candidate": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "enum": [
+            "solid_electrolyte",
+            "mof_water",
+            "drug_stability"
+          ],
+          "title": "Domain",
+          "type": "string"
+        },
+        "formula": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formula"
+        },
+        "hypothesis_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis Id"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/definitions/Provenance"
+        },
+        "repr_kind": {
+          "enum": [
+            "cif",
+            "smiles",
+            "pdb",
+            "xyz"
+          ],
+          "title": "Repr Kind",
+          "type": "string"
+        },
+        "structure": {
+          "title": "Structure",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "structure",
+        "repr_kind",
+        "domain",
+        "provenance"
+      ],
+      "title": "Candidate",
+      "type": "object"
+    },
+    "CandidatesGenerated": {
+      "additionalProperties": false,
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/definitions/Candidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "candidates.generated",
+          "default": "candidates.generated",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hypothesis_id",
+        "candidates",
+        "type"
+      ],
+      "title": "CandidatesGenerated",
+      "type": "object"
+    },
+    "Constraint": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "==",
+            "in",
+            "not_in"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "property": {
+          "title": "Property",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "property",
+        "op",
+        "value",
+        "description"
+      ],
+      "title": "Constraint",
+      "type": "object"
+    },
+    "ControllerDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "continue",
+            "pivot",
+            "branch",
+            "converge"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "branches": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Branches",
+          "type": "array"
+        },
+        "reasoning": {
+          "title": "Reasoning",
+          "type": "string"
+        },
+        "type": {
+          "const": "controller.decision",
+          "default": "controller.decision",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "reasoning",
+        "type"
+      ],
+      "title": "ControllerDecision",
+      "type": "object"
+    },
+    "EmbeddingUpdated": {
+      "additionalProperties": false,
+      "description": "3D chemical-space coordinates for every candidate seen so far.",
+      "properties": {
+        "points": {
+          "additionalProperties": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "object"
+        },
+        "type": {
+          "const": "embedding.updated",
+          "default": "embedding.updated",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "points",
+        "type"
+      ],
+      "title": "EmbeddingUpdated",
+      "type": "object"
+    },
+    "Event": {
+      "additionalProperties": false,
+      "description": "One line of the append-only campaign log.",
+      "properties": {
+        "body": {
+          "discriminator": {
+            "mapping": {
+              "analyst.verdict": "#/definitions/AnalystVerdict",
+              "artifact.created": "#/definitions/ArtifactCreated",
+              "campaign.completed": "#/definitions/CampaignCompleted",
+              "campaign.error": "#/definitions/CampaignError",
+              "campaign.started": "#/definitions/CampaignStarted",
+              "candidates.generated": "#/definitions/CandidatesGenerated",
+              "controller.decision": "#/definitions/ControllerDecision",
+              "embedding.updated": "#/definitions/EmbeddingUpdated",
+              "hypothesis.proposed": "#/definitions/HypothesisProposed",
+              "ledger.updated": "#/definitions/LedgerUpdated",
+              "measurement.recorded": "#/definitions/MeasurementRecorded",
+              "notebook.delta": "#/definitions/NotebookDelta",
+              "pareto.updated": "#/definitions/ParetoUpdated",
+              "proposal.created": "#/definitions/ProposalCreated",
+              "round.started": "#/definitions/RoundStarted",
+              "scoring.started": "#/definitions/ScoringStarted",
+              "skeptic.reviewed": "#/definitions/SkepticReviewed",
+              "spec.created": "#/definitions/SpecCreated"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/definitions/CampaignStarted"
+            },
+            {
+              "$ref": "#/definitions/SpecCreated"
+            },
+            {
+              "$ref": "#/definitions/RoundStarted"
+            },
+            {
+              "$ref": "#/definitions/HypothesisProposed"
+            },
+            {
+              "$ref": "#/definitions/CandidatesGenerated"
+            },
+            {
+              "$ref": "#/definitions/SkepticReviewed"
+            },
+            {
+              "$ref": "#/definitions/ScoringStarted"
+            },
+            {
+              "$ref": "#/definitions/MeasurementRecorded"
+            },
+            {
+              "$ref": "#/definitions/ArtifactCreated"
+            },
+            {
+              "$ref": "#/definitions/EmbeddingUpdated"
+            },
+            {
+              "$ref": "#/definitions/ParetoUpdated"
+            },
+            {
+              "$ref": "#/definitions/AnalystVerdict"
+            },
+            {
+              "$ref": "#/definitions/NotebookDelta"
+            },
+            {
+              "$ref": "#/definitions/ControllerDecision"
+            },
+            {
+              "$ref": "#/definitions/LedgerUpdated"
+            },
+            {
+              "$ref": "#/definitions/ProposalCreated"
+            },
+            {
+              "$ref": "#/definitions/CampaignCompleted"
+            },
+            {
+              "$ref": "#/definitions/CampaignError"
+            }
+          ],
+          "title": "Body"
+        },
+        "campaign_id": {
+          "title": "Campaign Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "t": {
+          "title": "T",
+          "type": "number"
+        }
+      },
+      "required": [
+        "seq",
+        "t",
+        "campaign_id",
+        "body"
+      ],
+      "title": "Event",
+      "type": "object"
+    },
+    "Heuristic": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "learned_from": {
+          "title": "Learned From",
+          "type": "string"
+        },
+        "strength": {
+          "enum": [
+            "tentative",
+            "established"
+          ],
+          "title": "Strength",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "learned_from",
+        "strength"
+      ],
+      "title": "Heuristic",
+      "type": "object"
+    },
+    "Hypothesis": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_plan": {
+          "$ref": "#/definitions/BatchPlan"
+        },
+        "branch": {
+          "default": "main",
+          "title": "Branch",
+          "type": "string"
+        },
+        "falsification_criterion": {
+          "title": "Falsification Criterion",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "prediction": {
+          "title": "Prediction",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "round": {
+          "title": "Round",
+          "type": "integer"
+        },
+        "statement": {
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "round",
+        "statement",
+        "rationale",
+        "prediction",
+        "falsification_criterion",
+        "batch_plan"
+      ],
+      "title": "Hypothesis",
+      "type": "object"
+    },
+    "HypothesisProposed": {
+      "additionalProperties": false,
+      "properties": {
+        "hypothesis": {
+          "$ref": "#/definitions/Hypothesis"
+        },
+        "type": {
+          "const": "hypothesis.proposed",
+          "default": "hypothesis.proposed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hypothesis",
+        "type"
+      ],
+      "title": "HypothesisProposed",
+      "type": "object"
+    },
+    "Ledger": {
+      "additionalProperties": false,
+      "properties": {
+        "candidates_generated": {
+          "default": 0,
+          "title": "Candidates Generated",
+          "type": "integer"
+        },
+        "candidates_scored": {
+          "default": 0,
+          "title": "Candidates Scored",
+          "type": "integer"
+        },
+        "candidates_vetoed": {
+          "default": 0,
+          "title": "Candidates Vetoed",
+          "type": "integer"
+        },
+        "est_dft_cpu_hours": {
+          "default": 0.0,
+          "title": "Est Dft Cpu Hours",
+          "type": "number"
+        },
+        "llm_calls": {
+          "default": 0,
+          "title": "Llm Calls",
+          "type": "integer"
+        },
+        "llm_input_tokens": {
+          "default": 0,
+          "title": "Llm Input Tokens",
+          "type": "integer"
+        },
+        "llm_output_tokens": {
+          "default": 0,
+          "title": "Llm Output Tokens",
+          "type": "integer"
+        },
+        "measurements": {
+          "default": 0,
+          "title": "Measurements",
+          "type": "integer"
+        },
+        "scorer_seconds": {
+          "default": 0.0,
+          "title": "Scorer Seconds",
+          "type": "number"
+        },
+        "wall_seconds": {
+          "default": 0.0,
+          "title": "Wall Seconds",
+          "type": "number"
+        }
+      },
+      "title": "Ledger",
+      "type": "object"
+    },
+    "LedgerUpdated": {
+      "additionalProperties": false,
+      "properties": {
+        "ledger": {
+          "$ref": "#/definitions/Ledger"
+        },
+        "type": {
+          "const": "ledger.updated",
+          "default": "ledger.updated",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ledger",
+        "type"
+      ],
+      "title": "LedgerUpdated",
+      "type": "object"
+    },
+    "Measurement": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "is_proxy": {
+          "default": false,
+          "title": "Is Proxy",
+          "type": "boolean"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "ood_flag": {
+          "default": false,
+          "title": "Ood Flag",
+          "type": "boolean"
+        },
+        "property": {
+          "title": "Property",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "property",
+        "value",
+        "unit",
+        "source",
+        "confidence"
+      ],
+      "title": "Measurement",
+      "type": "object"
+    },
+    "MeasurementRecorded": {
+      "additionalProperties": false,
+      "properties": {
+        "measurement": {
+          "$ref": "#/definitions/Measurement"
+        },
+        "type": {
+          "const": "measurement.recorded",
+          "default": "measurement.recorded",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "measurement",
+        "type"
+      ],
+      "title": "MeasurementRecorded",
+      "type": "object"
+    },
+    "NotebookDelta": {
+      "additionalProperties": false,
+      "description": "A streamed chunk of Lab Notebook prose. Concatenate by entry_id.",
+      "properties": {
+        "author": {
+          "enum": [
+            "strategist",
+            "skeptic",
+            "analyst",
+            "controller",
+            "system"
+          ],
+          "title": "Author",
+          "type": "string"
+        },
+        "entry_id": {
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "heading": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Heading"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "notebook.delta",
+          "default": "notebook.delta",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_id",
+        "author",
+        "text",
+        "type"
+      ],
+      "title": "NotebookDelta",
+      "type": "object"
+    },
+    "NotebookView": {
+      "additionalProperties": false,
+      "description": "Read-only snapshot of what the campaign knows, given to agents.",
+      "properties": {
+        "candidates": {
+          "additionalProperties": {
+            "$ref": "#/definitions/Candidate"
+          },
+          "default": {},
+          "title": "Candidates",
+          "type": "object"
+        },
+        "heuristics": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Heuristic"
+          },
+          "title": "Heuristics",
+          "type": "array"
+        },
+        "hypotheses": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Hypothesis"
+          },
+          "title": "Hypotheses",
+          "type": "array"
+        },
+        "measurements": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Measurement"
+          },
+          "title": "Measurements",
+          "type": "array"
+        },
+        "pareto": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/ParetoPoint"
+          },
+          "title": "Pareto",
+          "type": "array"
+        },
+        "spec": {
+          "$ref": "#/definitions/Spec"
+        },
+        "verdict_reasoning": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "title": "Verdict Reasoning",
+          "type": "object"
+        },
+        "verdicts": {
+          "additionalProperties": {
+            "enum": [
+              "SUPPORTED",
+              "REFUTED",
+              "INCONCLUSIVE"
+            ],
+            "type": "string"
+          },
+          "default": {},
+          "title": "Verdicts",
+          "type": "object"
+        },
+        "vetoes": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Veto"
+          },
+          "title": "Vetoes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "title": "NotebookView",
+      "type": "object"
+    },
+    "Objective": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "min",
+            "max",
+            "target"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "property": {
+          "title": "Property",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "property",
+        "label",
+        "direction",
+        "unit"
+      ],
+      "title": "Objective",
+      "type": "object"
+    },
+    "ParetoPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "rank": {
+          "title": "Rank",
+          "type": "integer"
+        },
+        "scalar_score": {
+          "title": "Scalar Score",
+          "type": "number"
+        },
+        "values": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "rank",
+        "values",
+        "scalar_score"
+      ],
+      "title": "ParetoPoint",
+      "type": "object"
+    },
+    "ParetoUpdated": {
+      "additionalProperties": false,
+      "properties": {
+        "points": {
+          "items": {
+            "$ref": "#/definitions/ParetoPoint"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "type": {
+          "const": "pareto.updated",
+          "default": "pareto.updated",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "points",
+        "type"
+      ],
+      "title": "ParetoUpdated",
+      "type": "object"
+    },
+    "Proposal": {
+      "additionalProperties": false,
+      "description": "The closing experimental proposal.",
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Caveats",
+          "type": "array"
+        },
+        "falsification_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Falsification Criteria",
+          "type": "array"
+        },
+        "lead_candidate_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lead Candidate Ids",
+          "type": "array"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "synthesis_route": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Synthesis Route",
+          "type": "array"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "validation_protocol": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Validation Protocol",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "summary",
+        "lead_candidate_ids",
+        "synthesis_route",
+        "validation_protocol",
+        "falsification_criteria",
+        "caveats"
+      ],
+      "title": "Proposal",
+      "type": "object"
+    },
+    "ProposalCreated": {
+      "additionalProperties": false,
+      "properties": {
+        "proposal": {
+          "$ref": "#/definitions/Proposal"
+        },
+        "type": {
+          "const": "proposal.created",
+          "default": "proposal.created",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal",
+        "type"
+      ],
+      "title": "ProposalCreated",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Where a candidate came from.",
+      "properties": {
+        "database": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Database"
+        },
+        "external_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "External Id"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "source": {
+          "enum": [
+            "retrieval",
+            "perturbation",
+            "user"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "RoundStarted": {
+      "additionalProperties": false,
+      "properties": {
+        "round": {
+          "title": "Round",
+          "type": "integer"
+        },
+        "type": {
+          "const": "round.started",
+          "default": "round.started",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "round",
+        "type"
+      ],
+      "title": "RoundStarted",
+      "type": "object"
+    },
+    "ScoringStarted": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "scorer": {
+          "title": "Scorer",
+          "type": "string"
+        },
+        "type": {
+          "const": "scoring.started",
+          "default": "scoring.started",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "scorer",
+        "type"
+      ],
+      "title": "ScoringStarted",
+      "type": "object"
+    },
+    "SkepticReviewed": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Approved Ids",
+          "type": "array"
+        },
+        "commentary": {
+          "title": "Commentary",
+          "type": "string"
+        },
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "skeptic.reviewed",
+          "default": "skeptic.reviewed",
+          "title": "Type",
+          "type": "string"
+        },
+        "vetoes": {
+          "items": {
+            "$ref": "#/definitions/Veto"
+          },
+          "title": "Vetoes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hypothesis_id",
+        "approved_ids",
+        "vetoes",
+        "commentary",
+        "type"
+      ],
+      "title": "SkepticReviewed",
+      "type": "object"
+    },
+    "Spec": {
+      "additionalProperties": false,
+      "properties": {
+        "constraints": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Constraint"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "domain": {
+          "enum": [
+            "solid_electrolyte",
+            "mof_water",
+            "drug_stability"
+          ],
+          "title": "Domain",
+          "type": "string"
+        },
+        "goal": {
+          "title": "Goal",
+          "type": "string"
+        },
+        "objectives": {
+          "items": {
+            "$ref": "#/definitions/Objective"
+          },
+          "title": "Objectives",
+          "type": "array"
+        },
+        "seed_strategy": {
+          "title": "Seed Strategy",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "goal",
+        "title",
+        "domain",
+        "objectives",
+        "seed_strategy"
+      ],
+      "title": "Spec",
+      "type": "object"
+    },
+    "SpecCreated": {
+      "additionalProperties": false,
+      "properties": {
+        "spec": {
+          "$ref": "#/definitions/Spec"
+        },
+        "type": {
+          "const": "spec.created",
+          "default": "spec.created",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec",
+        "type"
+      ],
+      "title": "SpecCreated",
+      "type": "object"
+    },
+    "Veto": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "ood",
+            "implausible",
+            "unsynthesizable",
+            "duplicate",
+            "off_spec"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "category",
+        "reason"
+      ],
+      "title": "Veto",
+      "type": "object"
+    }
+  },
+  "description": "Generated from backend/athanor/contracts.py \u2014 do not edit.",
+  "properties": {
+    "Artifact": {
+      "$ref": "#/definitions/Artifact"
+    },
+    "BatchPlan": {
+      "$ref": "#/definitions/BatchPlan"
+    },
+    "Candidate": {
+      "$ref": "#/definitions/Candidate"
+    },
+    "Constraint": {
+      "$ref": "#/definitions/Constraint"
+    },
+    "Event": {
+      "$ref": "#/definitions/Event"
+    },
+    "Heuristic": {
+      "$ref": "#/definitions/Heuristic"
+    },
+    "Hypothesis": {
+      "$ref": "#/definitions/Hypothesis"
+    },
+    "Ledger": {
+      "$ref": "#/definitions/Ledger"
+    },
+    "Measurement": {
+      "$ref": "#/definitions/Measurement"
+    },
+    "NotebookView": {
+      "$ref": "#/definitions/NotebookView"
+    },
+    "Objective": {
+      "$ref": "#/definitions/Objective"
+    },
+    "ParetoPoint": {
+      "$ref": "#/definitions/ParetoPoint"
+    },
+    "Proposal": {
+      "$ref": "#/definitions/Proposal"
+    },
+    "Provenance": {
+      "$ref": "#/definitions/Provenance"
+    },
+    "Spec": {
+      "$ref": "#/definitions/Spec"
+    },
+    "Veto": {
+      "$ref": "#/definitions/Veto"
+    }
+  },
+  "title": "AthanorContracts",
+  "type": "object"
+}

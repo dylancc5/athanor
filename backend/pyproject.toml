@@ -12,14 +12,12 @@ dependencies = [
     "python-dotenv>=1.0",
     "httpx>=0.27",
     "numpy",
-    "scipy",
+    "scipy>=1.15",
     "scikit-learn",
     "ase>=3.23",
     "pymatgen>=2024.8",
     "mp-api>=0.41",
-    "mace-torch>=0.3.10",
     "rdkit>=2024.3",
-    "tblite>=0.4",
 ]
 
 [dependency-groups]

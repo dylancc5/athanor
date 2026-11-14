@@ -1,0 +1,39 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "gen:types": "json2ts --input lib/contracts.schema.json --output lib/contracts.ts --unreachableDefinitions --no-format",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.1.2",
+    "@react-three/fiber": "^9.1.2",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.2.0",
+    "next": "15.5.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "three": "^0.176.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-shape": "^3.2.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.176.0",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.4",
+    "json-schema-to-typescript": "^15.0.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
