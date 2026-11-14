@@ -9,8 +9,19 @@ import { useCampaign } from "@/lib/store";
 import type { Objective } from "@/lib/contracts";
 
 const W = 520;
-const H = 300;
-const M = { top: 14, right: 16, bottom: 44, left: 62 };
+const H = 310;
+const M = { top: 16, right: 18, bottom: 50, left: 66 };
+
+/** Rough advance of one label glyph at the label size, for collision tests. */
+const GLYPH = 6.4;
+const LABEL_H = 13;
+
+/** "Band gap (electrochemical window proxy)" does not fit a rotated axis. */
+function axisTitle(o: Objective): string {
+  const short = o.label.replace(/\s*\([^)]*\)\s*$/, "");
+  const arrow = o.direction === "min" ? "↓ lower is better" : o.direction === "max" ? "↑ higher is better" : "target";
+  return `${short} (${o.unit}) · ${arrow}`;
+}
 
 /**
  * 2D Pareto frontier. Axes are scaled to whatever the data actually is —
@@ -95,8 +106,46 @@ export function ParetoPanel() {
       .sort((a, b) => (x.direction === "min" ? a.x - b.x : b.x - a.x));
     const frontierIds = new Set(frontier.map((r) => r.id));
 
-    return { rows, sx, sy, frontier, frontierIds, x, y };
-  }, [axes, state.pareto]);
+    // Label placement. Every label used to sit to the right of its point, so
+    // two candidates with similar values printed on top of each other and a
+    // point near the right edge ran off the plot. Try four positions per point
+    // and take the first that stays inside and clear of labels already placed.
+    type Box = { x0: number; x1: number; y0: number; y1: number };
+    const placed: Box[] = [];
+    const hits = (b: Box) =>
+      placed.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
+    const labels: Record<string, { dx: number; dy: number; anchor: "start" | "end" }> = {};
+    const names: Record<string, string> = {};
+    for (const r of [...rows].sort((a, b) => Number(frontierIds.has(b.id)) - Number(frontierIds.has(a.id)))) {
+      const name = state.candidates[r.id]?.name ?? r.id;
+      names[r.id] = name;
+      const w = name.length * GLYPH;
+      const px = sx(r.x);
+      const py = sy(r.y);
+      const options: { dx: number; dy: number; anchor: "start" | "end" }[] = [
+        { dx: 9, dy: 0, anchor: "start" },
+        { dx: -9, dy: 0, anchor: "end" },
+        { dx: 7, dy: -11, anchor: "start" },
+        { dx: 7, dy: 12, anchor: "start" },
+        { dx: -7, dy: -11, anchor: "end" },
+        { dx: -7, dy: 12, anchor: "end" },
+      ];
+      const boxOf = (o: (typeof options)[number]): Box => {
+        const x0 = o.anchor === "start" ? px + o.dx : px + o.dx - w;
+        return { x0, x1: x0 + w, y0: py + o.dy - LABEL_H / 2, y1: py + o.dy + LABEL_H / 2 };
+      };
+      const inside = (b: Box) =>
+        b.x0 >= M.left + 2 && b.x1 <= W - 2 && b.y0 >= 2 && b.y1 <= H - M.bottom - 2;
+      const pick =
+        options.find((o) => inside(boxOf(o)) && !hits(boxOf(o))) ??
+        options.find((o) => inside(boxOf(o))) ??
+        options[0];
+      labels[r.id] = pick;
+      placed.push(boxOf(pick));
+    }
+
+    return { rows, sx, sy, frontier, frontierIds, x, y, labels, names };
+  }, [axes, state.pareto, state.candidates]);
 
   // candidates that were measured but never made it into a pareto update
   const unranked = useMemo(() => {
@@ -116,7 +165,7 @@ export function ParetoPanel() {
         value={current?.property ?? ""}
         onChange={(e) => set(e.target.value)}
         aria-label={`${which} axis`}
-        className="rounded border border-rule bg-panel-2 px-1 py-0.5 font-mono text-[0.625rem] text-ink-dim"
+        className="max-w-[11rem] truncate rounded border border-rule bg-panel-2 px-1.5 py-1 font-mono text-[0.6875rem] text-ink-dim hover:border-rule-bright"
       >
         {axes.available.map((o) => (
           <option key={o.property} value={o.property}>
@@ -147,9 +196,9 @@ export function ParetoPanel() {
           <svg
             viewBox={`0 0 ${W} ${H}`}
             className="w-full"
-            style={{ maxHeight: 320 }}
-            role="img"
-            aria-label="Pareto frontier scatter plot"
+            style={{ maxHeight: 340 }}
+            role="group"
+            aria-label={`Pareto frontier: ${plot.y.label} against ${plot.x.label}. ${plot.frontier.length} of ${plot.rows.length} candidates are on the frontier for these two axes.`}
           >
             {/* gridlines + ticks, from the scales, not from constants */}
             {plot.sy.ticks(5).map((t) => (
@@ -167,8 +216,8 @@ export function ParetoPanel() {
                   dy="0.32em"
                   textAnchor="end"
                   className="num"
-                  fontSize="9"
-                  fill="#64748b"
+                  fontSize="11"
+                  fill="#8291a6"
                 >
                   {t}
                 </text>
@@ -185,11 +234,11 @@ export function ParetoPanel() {
                 />
                 <text
                   x={plot.sx(t)}
-                  y={H - M.bottom + 14}
+                  y={H - M.bottom + 16}
                   textAnchor="middle"
                   className="num"
-                  fontSize="9"
-                  fill="#64748b"
+                  fontSize="11"
+                  fill="#8291a6"
                 >
                   {t}
                 </text>
@@ -199,6 +248,8 @@ export function ParetoPanel() {
             {/* frontier staircase */}
             {plot.frontier.length > 1 ? (
               <polyline
+                key={plot.frontier.map((r) => r.id).join("|")}
+                className="line-in"
                 points={plot.frontier
                   .map((r) => `${plot.sx(r.x)},${plot.sy(r.y)}`)
                   .join(" ")}
@@ -206,40 +257,66 @@ export function ParetoPanel() {
                 stroke="#38bdf8"
                 strokeWidth="1.5"
                 strokeDasharray="4 3"
-                opacity="0.75"
               />
             ) : null}
 
             {plot.rows.map((r) => {
               const on = plot.frontierIds.has(r.id);
               const isSel = r.id === selected;
+              const lab = plot.labels[r.id];
+              const name = plot.names[r.id];
               return (
                 <g
                   key={r.id}
                   transform={`translate(${plot.sx(r.x)},${plot.sy(r.y)})`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSel}
+                  aria-label={`${name}: ${plot.x.label} ${fmtValue(r.x, plot.x.unit)}, ${plot.y.label} ${fmtValue(r.y, plot.y.unit)}, ${on ? "on the frontier" : "dominated"}`}
                   onClick={() => selectCandidate(isSel ? null : r.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      selectCandidate(isSel ? null : r.id);
+                    }
+                  }}
+                  className="pareto-point"
                   style={{ cursor: "pointer" }}
                 >
+                  {/* a hit area a pointer can actually land on */}
+                  <circle r="12" fill="transparent" />
                   <title>
-                    {`${state.candidates[r.id]?.name ?? r.id}\n${plot.x.label}: ${fmtValue(r.x, plot.x.unit)}\n${plot.y.label}: ${fmtValue(r.y, plot.y.unit)}\n${on ? "on this 2D frontier" : "dominated on these two axes"}\noverall rank ${r.rank} (all objectives) · score ${r.score.toFixed(3)}`}
+                    {`${name}\n${plot.x.label}: ${fmtValue(r.x, plot.x.unit)}\n${plot.y.label}: ${fmtValue(r.y, plot.y.unit)}\n${on ? "on this 2D frontier" : "dominated on these two axes"}\noverall rank ${r.rank} (all objectives) · score ${r.score.toFixed(3)}`}
                   </title>
-                  {isSel ? (
-                    <circle r="9" fill="none" stroke="#38bdf8" strokeWidth="1" />
-                  ) : null}
                   <circle
-                    r={on ? 4.5 : 3.5}
+                    className="pareto-ring"
+                    r="9"
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth="1"
+                    opacity={isSel ? 1 : 0}
+                  />
+                  <circle
+                    className="point-in"
+                    r={on ? 5 : 4}
                     fill={on ? "#38bdf8" : "#334155"}
-                    stroke={on ? "#7dd3fc" : "#475569"}
+                    stroke={on ? "#7dd3fc" : "#64748b"}
                     strokeWidth="1"
                   />
                   <text
-                    x="8"
-                    y="0"
+                    x={lab.dx}
+                    y={lab.dy}
                     dy="0.32em"
-                    fontSize="9"
-                    fill={isSel ? "#e6ecf3" : "#94a3b8"}
+                    textAnchor={lab.anchor}
+                    className="num"
+                    fontSize="11"
+                    fill={isSel ? "#e6ecf3" : on ? "#c5d0dc" : "#8291a6"}
+                    // a dark halo keeps the name legible over gridlines
+                    stroke="#0b0f16"
+                    strokeWidth="3"
+                    paintOrder="stroke"
                   >
-                    {state.candidates[r.id]?.name ?? r.id}
+                    {name}
                   </text>
                 </g>
               );
@@ -248,20 +325,20 @@ export function ParetoPanel() {
             {/* axis labels carry the real objective label, unit and direction */}
             <text
               x={(W - M.right + M.left) / 2}
-              y={H - 6}
+              y={H - 8}
               textAnchor="middle"
-              fontSize="10"
-              fill="#9aa8b8"
+              fontSize="11.5"
+              fill="#aab6c6"
             >
-              {`${plot.x.label} (${plot.x.unit}) · ${plot.x.direction === "min" ? "lower is better" : plot.x.direction === "max" ? "higher is better" : "target"}`}
+              {axisTitle(plot.x)}
             </text>
             <text
-              transform={`translate(13,${(H - M.bottom + M.top) / 2}) rotate(-90)`}
+              transform={`translate(14,${(H - M.bottom + M.top) / 2}) rotate(-90)`}
               textAnchor="middle"
-              fontSize="10"
-              fill="#9aa8b8"
+              fontSize="11.5"
+              fill="#aab6c6"
             >
-              {`${plot.y.label} (${plot.y.unit}) · ${plot.y.direction === "min" ? "lower is better" : plot.y.direction === "max" ? "higher is better" : "target"}`}
+              {axisTitle(plot.y)}
             </text>
           </svg>
 
@@ -269,7 +346,7 @@ export function ParetoPanel() {
             <Chip color="#38bdf8" title="non-dominated on the two axes shown">
               frontier · these 2 axes
             </Chip>
-            <Chip color="#475569">dominated</Chip>
+            <Chip color="#8291a6">dominated</Chip>
             {state.pareto.filter((p) => p.rank === 0).length !==
             plot.frontier.length ? (
               <span
@@ -291,7 +368,7 @@ export function ParetoPanel() {
                 {unranked.length} not ranked — missing an objective
               </span>
             ) : null}
-            <div className="ml-auto flex items-center gap-1.5">
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
               {axisPicker("x", plot.x, setXKey)}
               {axisPicker("y", plot.y, setYKey)}
             </div>

@@ -26,10 +26,10 @@ const Viewer = dynamic(
     loading: () => (
       <div className="flex min-h-0 flex-col border border-rule bg-panel">
         <div className="border-b border-rule px-3 py-2">
-          <h2 className="text-[0.8125rem] font-medium text-ink">Viewer</h2>
+          <h2 className="text-[0.875rem] font-medium text-ink">Viewer</h2>
         </div>
         <div className="flex flex-1 items-center justify-center">
-          <span className="label">initializing renderer</span>
+          <span className="label">initializing renderer…</span>
         </div>
       </div>
     ),
@@ -43,6 +43,7 @@ function Header() {
   const loadCampaign = useCampaign((s) => s.loadCampaign);
   const source = useCampaign((s) => s.source);
   const sourceStatus = useCampaign((s) => s.sourceStatus);
+  const playing = useCampaign((s) => s.playing);
   const tour = useCampaign((s) => s.tour);
   const setTour = useCampaign((s) => s.setTour);
   const restart = useCampaign((s) => s.restart);
@@ -52,35 +53,43 @@ function Header() {
   const titleCounts = new Map<string, number>();
   for (const c of campaigns) titleCounts.set(c.title, (titleCounts.get(c.title) ?? 0) + 1);
 
+  const live = source?.kind === "api";
+  const statusText =
+    sourceStatus === "detecting" ? "connecting…" : (source?.label ?? "offline");
+
   return (
-    <header className="no-print flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-rule bg-panel px-4 py-2.5">
-      <div className="flex items-baseline gap-3">
-        <h1 className="font-mono text-[0.9375rem] font-medium tracking-[0.24em] text-ink">
+    <header className="no-print flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-rule bg-panel px-4 py-2.5">
+      <div className="flex min-w-0 items-baseline gap-3">
+        <h1 className="font-mono text-[1rem] font-medium tracking-[0.24em] text-ink">
           ATHANOR
         </h1>
-        <span className="hidden text-[0.6875rem] text-ink-faint sm:inline">
+        <span className="hidden text-[0.8125rem] text-ink-faint sm:inline">
           autonomous research campaigns
         </span>
         {state.spec ? (
-          <span className="hidden border-l border-rule pl-3 text-[0.75rem] text-ink-dim md:inline">
+          <span className="hidden min-w-0 truncate border-l border-rule pl-3 text-[0.8125rem] text-ink-dim md:inline">
             {state.spec.title}
           </span>
         ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {campaigns.map((c) => (
-          <Button
-            key={c.id}
-            size="sm"
-            active={c.id === campaignId}
-            title={c.goal}
-            onClick={() => void loadCampaign(c.id, { play: true })}
-          >
-            {(titleCounts.get(c.title) ?? 0) > 1 ? `${c.title} · ${c.id}` : c.title}
-          </Button>
-        ))}
-        <div className="mx-1 h-4 w-px bg-rule" />
+        {campaigns.length > 0 ? (
+          <nav aria-label="Recorded campaigns" className="flex flex-wrap items-center gap-1.5">
+            {campaigns.map((c) => (
+              <Button
+                key={c.id}
+                size="sm"
+                active={c.id === campaignId}
+                title={c.goal}
+                onClick={() => void loadCampaign(c.id, { play: true })}
+              >
+                {(titleCounts.get(c.title) ?? 0) > 1 ? `${c.title} · ${c.id}` : c.title}
+              </Button>
+            ))}
+          </nav>
+        ) : null}
+        <div aria-hidden className="mx-1 h-4 w-px bg-rule" />
         <Button
           size="sm"
           active={tour}
@@ -93,18 +102,69 @@ function Header() {
           Tour
         </Button>
         <span
-          className="label ml-1"
+          className="label ml-1.5 inline-flex items-center gap-1.5"
           title={
-            source?.kind === "api"
+            live
               ? "connected to the ATHANOR backend"
               : "replaying recorded campaigns from static files — no backend required"
           }
         >
-          {sourceStatus === "detecting" ? "connecting" : (source?.label ?? "offline")}
+          <span
+            aria-hidden
+            className={`relative inline-flex h-1.5 w-1.5 rounded-full ${
+              sourceStatus === "detecting"
+                ? "bg-inconclusive"
+                : live
+                  ? "bg-supported"
+                  : "bg-accent"
+            } ${playing ? "pulse-ring" : ""}`}
+            style={{ color: live ? "var(--color-supported)" : "var(--color-accent)" }}
+          />
+          {statusText}
         </span>
       </div>
     </header>
   );
+}
+
+/**
+ * Transport shortcuts. Deliberately not bound while focus is inside a field
+ * or on a control that already owns the key — Space on a focused button must
+ * still press that button, and the arrows must still move a focused slider.
+ */
+function useTransportKeys() {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) {
+        return;
+      }
+      const onControl = tag === "BUTTON" || tag === "A" || el?.getAttribute("role") === "button";
+      const s = useCampaign.getState();
+      if (s.events.length === 0) return;
+
+      if (e.key === " " && !onControl) {
+        e.preventDefault();
+        s.toggle();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        s.stepBy(-1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        s.stepBy(1);
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        s.restart();
+      } else if (e.key === "End") {
+        e.preventDefault();
+        s.jumpToEnd();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 }
 
 /** Reads `?campaign=&seq=&view=&tour=1` once, then keeps the URL in step. */
@@ -170,6 +230,7 @@ export function AppShell() {
   const init = useCampaign((s) => s.init);
   const loadError = useCampaign((s) => s.loadError);
   useDeepLink();
+  useTransportKeys();
 
   useEffect(() => {
     void init();
@@ -178,45 +239,59 @@ export function AppShell() {
 
   return (
     <div className="flex h-dvh flex-col bg-ground">
+      <a href="#main" className="skip-link">
+        Skip to the campaign
+      </a>
       <Header />
 
       {loadError ? (
-        <div className="no-print shrink-0 border-b border-refuted/40 bg-refuted/10 px-4 py-1.5">
-          <span className="num text-[0.6875rem] text-refuted">{loadError}</span>
+        <div
+          role="alert"
+          className="no-print shrink-0 border-b border-refuted/40 bg-refuted/10 px-4 py-2"
+        >
+          <span className="num text-[0.8125rem] text-refuted">{loadError}</span>
         </div>
       ) : null}
 
-      <main className="instrument-grid min-h-0 flex-1 overflow-y-auto p-2.5">
+      <main
+        id="main"
+        tabIndex={-1}
+        className="instrument-grid min-h-0 flex-1 overflow-y-auto overflow-x-clip p-2.5 focus:outline-none"
+      >
         <div className="mx-auto flex min-h-full max-w-[1800px] flex-col gap-2.5">
           <Timeline />
 
-          <div className="grid min-h-0 flex-1 gap-2.5 xl:grid-cols-[minmax(0,19rem)_minmax(0,1.15fr)_minmax(0,1fr)]">
-            {/* left rail: intake, cost */}
-            <div className="flex min-h-0 flex-col gap-2.5">
+          {/* One column on a phone, two from `lg`, three from `xl`. The viewer
+              column drops under the other two at `lg` and lays its own panels
+              out side by side so it does not become one very long strip. */}
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-2.5 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,21.5rem)_minmax(0,1.15fr)_minmax(0,1fr)]">
+            {/* left rail: intake, cost. On a phone it follows the board, so the
+                first screen is the hypothesis rather than the intake form. */}
+            <div className="order-2 flex min-h-0 min-w-0 flex-col gap-2.5 lg:order-none">
               <GoalPanel />
               <LedgerPanel />
             </div>
 
             {/* centre: the money shot, then the evidence under it */}
-            <div className="flex min-h-0 flex-col gap-2.5">
-              <div className="min-h-[22rem] xl:max-h-[46vh]">
+            <div className="order-1 flex min-h-0 min-w-0 flex-col gap-2.5 lg:order-none">
+              <div className="flex min-h-[16rem] flex-col xl:max-h-[52vh] [&>section]:flex-1">
                 <HypothesisBoard />
               </div>
-              <div className="min-h-[16rem] xl:max-h-[32vh]">
+              <div className="flex min-h-[12rem] flex-col xl:max-h-[36vh] [&>section]:flex-1">
                 <MeasurementsTable />
               </div>
               <ProposalPanel />
             </div>
 
             {/* right: what it is thinking and what it is looking at */}
-            <div className="flex min-h-0 flex-col gap-2.5">
-              <div className="h-[27rem] shrink-0">
+            <div className="order-3 grid min-h-0 min-w-0 grid-cols-1 content-start gap-2.5 lg:order-none lg:col-span-2 lg:grid-cols-2 xl:col-span-1 xl:flex xl:flex-col">
+              <div className="h-[clamp(20rem,44vh,27rem)] shrink-0 lg:row-span-2 lg:h-auto lg:min-h-[26rem] xl:h-[clamp(20rem,44vh,27rem)] xl:min-h-0">
                 <ErrorBoundary label="viewer-host">
                   <Viewer />
                 </ErrorBoundary>
               </div>
               <ParetoPanel />
-              <div className="min-h-[18rem] flex-1">
+              <div className="flex min-h-[18rem] flex-1 flex-col [&>section]:flex-1">
                 <Notebook />
               </div>
             </div>

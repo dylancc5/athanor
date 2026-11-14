@@ -40,21 +40,21 @@ function Entry({
 
   return (
     <article className="rise-in border-l-2 pl-3" style={{ borderColor: `${color}66` }}>
-      <div className="mb-1.5 flex items-baseline gap-2">
+      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <span
-          className="font-mono text-[0.625rem] uppercase tracking-[0.14em]"
+          className="shrink-0 font-mono text-[0.6875rem] uppercase tracking-[0.12em]"
           style={{ color }}
         >
           {AUTHOR_LABEL[entry.author] ?? entry.author}
         </span>
         {entry.heading ? (
-          <h3 className="min-w-0 text-[0.8125rem] font-medium leading-snug text-ink">
+          <h3 className="min-w-0 text-[0.875rem] font-medium leading-snug text-ink">
             {entry.heading}
           </h3>
         ) : null}
       </div>
       <p
-        className={`whitespace-pre-wrap text-[0.8125rem] leading-[1.65] text-ink-dim ${
+        className={`max-w-[72ch] whitespace-pre-wrap text-[0.875rem] leading-[1.7] text-ink-dim ${
           live && arriving.length > 0 ? "caret" : ""
         }`}
       >
@@ -93,7 +93,10 @@ export function Notebook() {
       eyebrow={entries.length > 0 ? `${words} words` : undefined}
       right={
         playing && entries.length > 0 ? (
-          <span className="label text-accent">writing</span>
+          <span className="label inline-flex items-center gap-1.5 text-accent">
+            <span aria-hidden className="pulse-ring relative inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+            writing…
+          </span>
         ) : null
       }
       scroll={false}
@@ -104,7 +107,13 @@ export function Notebook() {
           record of a wrong turn survives the turn.
         </EmptyNote>
       ) : (
-        <div ref={scroller} className="flex h-full flex-col gap-5 overflow-y-auto p-3">
+        <div
+          ref={scroller}
+          tabIndex={0}
+          role="log"
+          aria-label="Lab notebook entries"
+          className="flex h-full flex-col gap-5 overflow-y-auto p-3.5"
+        >
           {entries.map((e) => (
             <Entry
               key={e.entryId}

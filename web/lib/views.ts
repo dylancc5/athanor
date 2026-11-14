@@ -19,17 +19,19 @@ export type ViewName =
 export interface ViewDef {
   name: ViewName;
   label: string;
+  /** compact form for the tab strip, where six full labels do not fit */
+  short: string;
   /** one line, shown under the selector */
   blurb: string;
 }
 
 export const VIEWS: ViewDef[] = [
-  { name: "structure", label: "Structure", blurb: "Relaxed unit cell, ball-and-stick" },
-  { name: "trajectory", label: "Migration path", blurb: "NEB hop or relaxation playback" },
-  { name: "void", label: "Void surface", blurb: "Accessible pore volume isosurface" },
-  { name: "space", label: "Chemical space", blurb: "Every candidate as a point" },
-  { name: "pareto", label: "Pareto surface", blurb: "The frontier as a surface" },
-  { name: "tree", label: "Hypothesis tree", blurb: "Branches darken when refuted" },
+  { name: "structure", label: "Structure", short: "Structure", blurb: "Relaxed unit cell, ball-and-stick" },
+  { name: "trajectory", label: "Migration path", short: "Path", blurb: "NEB hop or relaxation playback" },
+  { name: "void", label: "Void surface", short: "Void", blurb: "Accessible pore volume isosurface" },
+  { name: "space", label: "Chemical space", short: "Space", blurb: "Every candidate as a point" },
+  { name: "pareto", label: "Pareto surface", short: "Pareto 3D", blurb: "The frontier as a surface" },
+  { name: "tree", label: "Hypothesis tree", short: "Tree", blurb: "Branches darken when refuted" },
 ];
 
 // --------------------------------------------------------------------------

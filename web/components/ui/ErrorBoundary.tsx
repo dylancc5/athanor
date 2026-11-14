@@ -28,7 +28,7 @@ export class ErrorBoundary extends Component<
           <div className="flex h-full items-center justify-center p-6 text-center">
             <div className="flex flex-col gap-1.5">
               <span className="label text-inconclusive">Render failed</span>
-              <p className="max-w-xs text-xs leading-relaxed text-ink-faint">
+              <p className="max-w-xs text-[0.8125rem] leading-relaxed text-ink-faint">
                 {this.state.error.message || "This view could not be drawn."} The rest
                 of the campaign is unaffected.
               </p>

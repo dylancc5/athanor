@@ -29,9 +29,9 @@ function Section({
         {items.map((item, i) => (
           <li
             key={i}
-            className="grid grid-cols-[1.25rem_1fr] gap-2 text-[0.8125rem] leading-relaxed text-ink-dim"
+            className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 text-[0.875rem] leading-relaxed text-ink-dim"
           >
-            <span className="num pt-0.5 text-[0.6875rem] text-ink-faint">
+            <span className="num pt-0.5 text-[0.75rem] text-ink-faint">
               {ordered ? `${i + 1}.` : "—"}
             </span>
             <span>{item}</span>
@@ -71,12 +71,12 @@ export function ProposalPanel() {
           it wrong.
         </EmptyNote>
       ) : (
-        <article className="flex flex-col gap-4 p-3">
+        <article className="rise-in flex max-w-[78ch] flex-col gap-5 p-4">
           <header className="flex flex-col gap-2 border-b border-rule pb-3">
-            <h1 className="text-[1.0625rem] font-medium leading-snug tracking-tight text-ink">
+            <h1 className="text-[1.125rem] font-medium leading-snug tracking-tight text-ink">
               {p.title}
             </h1>
-            <p className="text-[0.8125rem] leading-relaxed text-ink-dim">{p.summary}</p>
+            <p className="text-[0.875rem] leading-relaxed text-ink-dim">{p.summary}</p>
             {p.lead_candidate_ids.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="label">Leads</span>
@@ -87,7 +87,7 @@ export function ProposalPanel() {
                 ))}
               </div>
             ) : null}
-            <p className="print-only num text-[0.6875rem] text-ink-faint">
+            <p className="print-only num text-[0.75rem] text-ink-faint">
               ATHANOR autonomous research campaign · {state.spec?.title ?? ""} ·{" "}
               {state.candidateIds.length} candidates screened ·{" "}
               {state.measurementLog.length} measurements
@@ -115,7 +115,7 @@ export function ProposalPanel() {
                     >
                       {h.strength}
                     </Chip>
-                    <span className="text-[0.8125rem] leading-relaxed text-ink-dim">
+                    <span className="text-[0.875rem] leading-relaxed text-ink-dim">
                       {h.text}
                     </span>
                   </li>

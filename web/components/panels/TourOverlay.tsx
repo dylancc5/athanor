@@ -108,6 +108,8 @@ export function TourOverlay() {
     <div className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-5">
       <div
         key={caption.title}
+        role="status"
+        aria-live="polite"
         className="rise-in pointer-events-auto w-full max-w-3xl border border-rule-bright bg-panel/95 shadow-[0_-8px_40px_rgba(0,0,0,0.55)] backdrop-blur"
       >
         <div className="h-px w-full bg-gradient-to-r from-accent via-accent/40 to-transparent" />
@@ -115,12 +117,12 @@ export function TourOverlay() {
           <div className="flex min-w-0 flex-col gap-1.5">
             <div className="flex items-baseline gap-2">
               <span className="label text-accent">Guided tour</span>
-              <span className="num text-[0.625rem] text-ink-faint">{progress}</span>
+              <span className="num text-[0.6875rem] text-ink-faint">{progress}</span>
             </div>
-            <h3 className="text-[0.9375rem] font-medium leading-snug tracking-tight text-ink">
+            <h3 className="text-[1.0625rem] font-medium leading-snug tracking-tight text-ink">
               {caption.title}
             </h3>
-            <p className="text-[0.8125rem] leading-[1.6] text-ink-dim">{caption.body}</p>
+            <p className="text-[0.9375rem] leading-[1.6] text-ink-dim">{caption.body}</p>
           </div>
           <div className="flex shrink-0 flex-col gap-1.5">
             <Button

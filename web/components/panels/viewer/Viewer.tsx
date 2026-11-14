@@ -341,7 +341,7 @@ export function Viewer() {
     <Panel
       id="panel-viewer"
       title="Viewer"
-      eyebrow={def?.blurb}
+      eyebrow={def ? `${def.label} · ${def.blurb}` : undefined}
       right={
         selected ? (
           <Chip color="#38bdf8">{state.candidates[selected]?.name ?? selected}</Chip>
@@ -351,19 +351,30 @@ export function Viewer() {
       className="h-full"
       bodyClassName="relative flex flex-col"
     >
-      <div className="no-print flex shrink-0 flex-wrap gap-1 border-b border-rule bg-panel-2/60 px-2 py-1.5">
+      <div
+        role="tablist"
+        aria-label="3D views"
+        className="no-print flex shrink-0 gap-1 overflow-x-auto border-b border-rule bg-panel-2/60 px-2 py-1.5"
+      >
         {VIEWS.map((v) => {
           const ok = viewAvailable(state, v.name, selected);
           return (
             <Button
               key={v.name}
               size="sm"
+              role="tab"
+              aria-selected={view === v.name}
+              aria-label={v.label}
               active={view === v.name}
               disabled={!ok}
-              title={ok ? v.blurb : `${v.blurb} — no data at this point in the campaign`}
+              title={
+                ok
+                  ? `${v.label} — ${v.blurb}`
+                  : `${v.label} — unlocks once the campaign produces this data`
+              }
               onClick={() => setView(v.name as ViewName)}
             >
-              {v.label}
+              {v.short}
             </Button>
           );
         })}
@@ -412,7 +423,7 @@ export function Viewer() {
               [&::-moz-range-thumb]:rounded-sm [&::-moz-range-thumb]:border-none
               [&::-moz-range-thumb]:bg-accent"
           />
-          <span className="num w-16 text-right text-[0.625rem] text-ink-faint">
+          <span className="num w-20 text-right text-[0.6875rem] text-ink-faint">
             {frameIndex === null
               ? `${scene.frameCount} frames`
               : `${frameIndex.toFixed(2)} / ${scene.frameCount - 1}`}
@@ -420,7 +431,10 @@ export function Viewer() {
         </div>
       ) : null}
 
-      <div className="relative min-h-0 flex-1">
+      {/* `isolate` keeps drei's very high Html z-indexes (axis labels, energy
+          card) inside the viewer, so they cannot paint over the sticky
+          timeline when the page scrolls. */}
+      <div className="relative isolate min-h-0 flex-1">
         <ErrorBoundary label="viewer">
           <Canvas
             dpr={[1, 1.75]}
@@ -463,17 +477,17 @@ export function Viewer() {
 
         {scene.node === null ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center">
-            <p className="max-w-xs text-xs leading-relaxed text-ink-faint">
+            <p className="max-w-sm text-[0.8125rem] leading-relaxed text-ink-faint">
               {scene.caption ??
                 "No data for this view yet. Views unlock as the campaign produces the artifacts behind them."}
             </p>
           </div>
         ) : scene.caption ? (
           <div className="pointer-events-none absolute bottom-1.5 left-1.5 right-1.5 flex items-end justify-between gap-2">
-            <span className="num rounded border border-rule bg-ground/85 px-1.5 py-1 text-[0.625rem] text-ink-dim backdrop-blur">
+            <span className="num rounded border border-rule bg-ground/85 px-1.5 py-1 text-[0.75rem] text-ink-dim backdrop-blur">
               {scene.caption}
             </span>
-            <span className="label rounded border border-rule bg-ground/85 px-1.5 py-1 backdrop-blur">
+            <span className="label hidden rounded border border-rule bg-ground/85 px-1.5 py-1 backdrop-blur sm:inline">
               drag to orbit · scroll to zoom
             </span>
           </div>

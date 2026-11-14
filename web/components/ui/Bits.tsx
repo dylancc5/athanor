@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 export function Chip({
   children,
@@ -26,7 +26,7 @@ export function Chip({
     <span
       title={title}
       style={style}
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[0.625rem] uppercase leading-none tracking-[0.1em] ${className}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-[0.1875rem] font-mono text-[0.6875rem] uppercase leading-none tracking-[0.08em] ${className}`}
     >
       {children}
     </span>
@@ -39,27 +39,39 @@ export function Metric({
   unit,
   hint,
   accent,
+  tick,
 }: {
   label: string;
   value: ReactNode;
   unit?: string;
   hint?: string;
   accent?: boolean;
+  /** flash once when the value changes — for counts, not for running clocks */
+  tick?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1 border-l border-rule pl-2.5" title={hint}>
-      <span className="label">{label}</span>
+    <div className="flex min-w-0 flex-col gap-1.5 border-l border-rule pl-2.5" title={hint}>
+      <span className="label truncate">{label}</span>
       <span
-        className={`num text-[1.0625rem] leading-none ${accent ? "text-accent" : "text-ink"}`}
+        // Re-keying on the value restarts the one-shot animation.
+        key={tick ? String(value) : undefined}
+        className={`num text-[1.125rem] leading-none ${accent ? "text-accent" : "text-ink"} ${
+          tick ? "value-tick" : ""
+        }`}
       >
         {value}
         {unit ? (
-          <span className="ml-1 text-[0.6875rem] text-ink-faint">{unit}</span>
+          <span className="ml-1 text-[0.75rem] text-ink-faint">{unit}</span>
         ) : null}
       </span>
     </div>
   );
 }
+
+type ButtonPassthrough = Pick<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "aria-label" | "aria-selected" | "aria-controls" | "aria-keyshortcuts" | "role" | "id"
+>;
 
 export function Button({
   children,
@@ -70,29 +82,39 @@ export function Button({
   size = "md",
   tone = "default",
   className = "",
+  ...rest
 }: {
   children: ReactNode;
   onClick?: () => void;
+  /** When defined, the button is a toggle and announces its state. */
   active?: boolean;
   disabled?: boolean;
   title?: string;
   size?: "sm" | "md";
   tone?: "default" | "accent";
   className?: string;
-}) {
-  const pad = size === "sm" ? "px-1.5 py-1 text-[0.625rem]" : "px-2.5 py-1.5 text-[0.6875rem]";
+} & ButtonPassthrough) {
+  const pad =
+    size === "sm"
+      ? "px-2 py-[0.3125rem] text-[0.6875rem]"
+      : "px-2.5 py-1.5 text-[0.75rem]";
   const look = active
     ? "border-accent/60 bg-accent/15 text-accent"
     : tone === "accent"
       ? "border-accent/50 bg-accent/10 text-accent hover:bg-accent/20"
       : "border-rule bg-panel-2 text-ink-dim hover:border-rule-bright hover:text-ink";
+  // A tab announces `aria-selected`; any other toggle announces `aria-pressed`.
+  const pressed =
+    active !== undefined && rest.role !== "tab" ? { "aria-pressed": active } : {};
   return (
     <button
       type="button"
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className={`rounded border font-mono uppercase tracking-[0.1em] transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${pad} ${look} ${className}`}
+      {...pressed}
+      {...rest}
+      className={`pressable shrink-0 whitespace-nowrap rounded border font-mono uppercase leading-none tracking-[0.08em] disabled:cursor-not-allowed disabled:border-dashed disabled:opacity-45 ${pad} ${look} ${className}`}
     >
       {children}
     </button>
@@ -117,7 +139,7 @@ export function FlagDot({
     <span
       title={title}
       style={{ color: c, borderColor: `${c}66`, background: `${c}14` }}
-      className="inline-flex cursor-help items-center rounded border px-1 font-mono text-[0.5625rem] leading-[1.35] tracking-[0.08em]"
+      className="inline-flex cursor-help items-center rounded border px-1 font-mono text-[0.6875rem] leading-[1.35] tracking-[0.06em]"
     >
       {t}
     </span>
@@ -131,11 +153,11 @@ export function ConfidenceBar({ value }: { value: number }) {
     <span className="inline-flex items-center gap-1.5" title={`confidence ${pct.toFixed(2)}`}>
       <span className="relative block h-1 w-10 overflow-hidden rounded-full bg-rule">
         <span
-          className="absolute inset-y-0 left-0 rounded-full"
+          className="bar-fill absolute inset-y-0 left-0 rounded-full"
           style={{ width: `${pct * 100}%`, background: color }}
         />
       </span>
-      <span className="num text-[0.625rem] text-ink-faint">{pct.toFixed(2)}</span>
+      <span className="num text-[0.6875rem] text-ink-faint">{pct.toFixed(2)}</span>
     </span>
   );
 }

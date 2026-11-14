@@ -57,7 +57,7 @@ function VerdictBadge({ status, flash }: { status: HypothesisStatus; flash: bool
       </span>
       <span
         className={`font-mono tracking-[0.18em] ${
-          refuted ? "text-[0.8125rem] font-semibold" : "text-[0.6875rem]"
+          refuted ? "text-[0.875rem] font-semibold" : "text-[0.75rem]"
         }`}
         style={{ color }}
       >
@@ -69,9 +69,9 @@ function VerdictBadge({ status, flash }: { status: HypothesisStatus; flash: bool
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-0.5 border-t border-rule/70 pt-2">
-      <span className="label pt-0.5">{label}</span>
-      <div className="text-[0.75rem] leading-relaxed text-ink-dim">{children}</div>
+    <div className="grid grid-cols-1 gap-x-3 gap-y-1 border-t border-rule/70 pt-2 sm:grid-cols-[6.25rem_minmax(0,1fr)]">
+      <span className="label pt-1">{label}</span>
+      <div className="text-[0.8125rem] leading-relaxed text-ink-dim">{children}</div>
     </div>
   );
 }
@@ -93,9 +93,24 @@ function Card({
 
   return (
     <article
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`Hypothesis ${h.id}, round ${h.round}, ${VERDICT_LABEL[status]}. ${
+        selected ? "Selected." : "Select to highlight it in the viewer."
+      }`}
       onClick={onSelect}
-      className={`rise-in group relative cursor-pointer border bg-panel-2 transition-colors duration-700 ${
-        selected ? "border-accent/50" : "border-rule hover:border-rule-bright"
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={`rise-in group relative cursor-pointer border bg-panel-2 transition-[border-color,box-shadow] duration-300 ${
+        selected
+          ? "border-accent/60 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-accent)_25%,transparent)]"
+          : "border-rule hover:border-rule-bright"
       }`}
     >
       {/* The "go dark" pass. A background/gradient swap cannot be animated, so
@@ -110,12 +125,12 @@ function Card({
         }}
       />
       <div
-        className="relative h-px w-full transition-all duration-700"
+        className="relative h-0.5 w-full"
         style={{ background: `linear-gradient(90deg, ${color}, transparent 70%)` }}
       />
       <div className="relative flex items-center justify-between gap-3 px-3 py-2">
         <div className="flex items-baseline gap-2">
-          <span className="num text-[0.6875rem] text-ink-faint">
+          <span className="num text-[0.75rem] text-ink-faint">
             R{h.round} · {h.id}
           </span>
           {h.branch && h.branch !== "main" ? (
@@ -126,7 +141,7 @@ function Card({
       </div>
 
       <p
-        className={`relative px-3 pb-2.5 text-[0.875rem] leading-snug transition-colors duration-700 ${
+        className={`relative px-3 pb-3 text-[0.9375rem] leading-normal transition-colors duration-700 ${
           refuted ? "text-ink-dim" : "text-ink"
         }`}
       >
@@ -161,7 +176,7 @@ function Card({
             <span className="label" style={{ color }}>
               Evidence
             </span>
-            <p className="mt-1.5 text-[0.75rem] leading-relaxed text-ink">
+            <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-ink">
               {record.verdictReasoning}
             </p>
             {record.heuristics.length > 0 ? (
@@ -174,7 +189,7 @@ function Card({
                     >
                       learned
                     </Chip>
-                    <span className="text-[0.75rem] leading-relaxed text-ink-dim">
+                    <span className="text-[0.8125rem] leading-relaxed text-ink-dim">
                       {heu.text}
                     </span>
                   </li>
@@ -185,7 +200,7 @@ function Card({
         ) : (
           <div className="flex items-center gap-2 border-t border-rule/70 pt-2">
             <span className="label">Testing</span>
-            <span className="num text-[0.6875rem] text-ink-faint">
+            <span className="num text-[0.75rem] text-ink-faint">
               {record.candidateIds.length} candidates ·{" "}
               {h.batch_plan.properties.join(", ")}
             </span>
@@ -210,7 +225,7 @@ export function HypothesisBoard() {
       title="Hypothesis board"
       eyebrow={`${records.length} proposed`}
       right={
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5" aria-live="polite">
           {(["REFUTED", "SUPPORTED", "INCONCLUSIVE", "OPEN"] as HypothesisStatus[])
             .filter((k) => counts[k] > 0)
             .map((k) => (
