@@ -164,19 +164,8 @@ def op_relax(req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def op_gap(req: dict[str, Any]) -> dict[str, Any]:
-    """HOMO-LUMO gap from GFN2-xTB orbital energies.
-
-    This is a *proxy* for chemical/oxidative susceptibility, not a measured
-    degradation rate and not an experimental band gap. A semiempirical
-    tight-binding frontier-orbital gap correlates loosely with how readily a
-    molecule is oxidised or attacked; it says nothing about a specific
-    degradation pathway, solvent, pH or excipient. Callers must set
-    `is_proxy=True`.
-    """
-    atoms = dict_to_atoms(req["atoms"])
-    atoms.calc = make_calculator(atoms)
-    atoms.get_potential_energy()
+def _frontier_orbitals(atoms) -> dict[str, float]:
+    """HOMO, LUMO and their gap (eV) from an already-attached calculator."""
     res = atoms.calc._res
     if res is None:
         raise ValueError("tblite returned no result object; cannot read orbitals")
@@ -214,6 +203,22 @@ def op_gap(req: dict[str, Any]) -> dict[str, Any]:
             f"{OCCUPATION_THRESHOLD}"
         ),
     }
+
+
+def op_gap(req: dict[str, Any]) -> dict[str, Any]:
+    """HOMO-LUMO gap from GFN2-xTB orbital energies.
+
+    This is a *proxy* for chemical/oxidative susceptibility, not a measured
+    degradation rate and not an experimental band gap. A semiempirical
+    tight-binding frontier-orbital gap correlates loosely with how readily a
+    molecule is oxidised or attacked; it says nothing about a specific
+    degradation pathway, solvent, pH or excipient. Callers must set
+    `is_proxy=True`.
+    """
+    atoms = dict_to_atoms(req["atoms"])
+    atoms.calc = make_calculator(atoms)
+    atoms.get_potential_energy()
+    return _frontier_orbitals(atoms)
 
 
 # --------------------------------------------------------------------------
@@ -332,15 +337,25 @@ def _gas_phase_energy(smiles: str, *, fmax: float, steps: int) -> dict[str, Any]
     from ase.optimize import BFGS
 
     if smiles in _gas_cache:
-        return {"energy_ev": _gas_cache[smiles], "cached": True}
+        return {**_gas_cache[smiles], "cached": True}
     mol = smiles_to_atoms(smiles)
     mol.calc = make_calculator(mol)
     BFGS(mol, logfile=None).run(fmax=fmax, steps=steps)
     e = float(mol.get_potential_energy())
     if not np.isfinite(e):
         raise ValueError("non-finite gas-phase energy")
-    _gas_cache[smiles] = e
-    return {"energy_ev": e, "cached": False, "n_atoms": len(mol)}
+
+    # Frontier orbitals of the relaxed reference molecule come for free here:
+    # the SCF result is already in hand. This is the only place a molecular
+    # HOMO-LUMO gap can be had for a crystal candidate, since the Gamma-point
+    # orbitals of a periodic cell are not the molecular gap.
+    entry: dict[str, Any] = {"energy_ev": e, "n_atoms": len(mol)}
+    try:
+        entry.update(_frontier_orbitals(mol))
+    except Exception as exc:  # noqa: BLE001 — reported, not silently dropped
+        entry["orbital_error"] = f"{type(exc).__name__}: {exc}"
+    _gas_cache[smiles] = entry
+    return {**entry, "cached": False}
 
 
 def op_lattice_energy(req: dict[str, Any]) -> dict[str, Any]:
@@ -407,8 +422,21 @@ def op_lattice_energy(req: dict[str, Any]) -> dict[str, Any]:
     gas = _gas_phase_energy(smiles, fmax=fmax, steps=gas_steps)
     e_gas = gas["energy_ev"]
 
+    # A reference SMILES carrying formal charges means the molecule sits in the
+    # crystal as a zwitterion (glycine does). An isolated zwitterion is NOT a
+    # gas-phase minimum — it tautomerises to the neutral form — so the absolute
+    # lattice energy against such a reference is unreliable. Differences
+    # between polymorphs of the same molecule still cancel it exactly, which is
+    # the number that gets used.
+    zwitterionic = ("+" in smiles and "-" in smiles)
+
     e_latt = e_crystal / z_total - e_gas
     return {
+        "homo_lumo_gap_ev": gas.get("homo_lumo_gap_ev"),
+        "homo_ev": gas.get("homo_ev"),
+        "lumo_ev": gas.get("lumo_ev"),
+        "orbital_error": gas.get("orbital_error"),
+        "gas_reference_zwitterionic": zwitterionic,
         "lattice_energy_ev_per_molecule": round(e_latt, 6),
         "lattice_energy_kj_per_mol": round(e_latt * 96.48533212, 4),
         "crystal_energy_ev": round(e_crystal, 6),

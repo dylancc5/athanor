@@ -7,8 +7,8 @@
  * so nothing downstream may assume a camera distance.
  */
 
-import { useEffect, useMemo } from "react";
-import { Canvas } from "@react-three/fiber";
+import { useEffect, useMemo, useState } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import { Bounds, OrbitControls } from "@react-three/drei";
 import { Panel } from "@/components/ui/Panel";
 import { Button, Chip } from "@/components/ui/Bits";
@@ -26,13 +26,14 @@ import {
   type ViewName,
 } from "@/lib/views";
 import {
-  AdsorptionSites,
+  type BoundingSphere,
   ChemicalSpace,
   HypothesisTree,
   ParetoSurface,
   StructureView,
   TrajectoryView,
   VoidSurface,
+  trajectoryFraming,
 } from "./three";
 
 // --------------------------------------------------------------------------
@@ -44,19 +45,45 @@ import {
 // That is what lets agents E and F change their internal scales without the
 // shell having to know. Remounting <Bounds> (via `key`) refits.
 
+/** Applies an explicit framing sphere (agent E's `trajectoryFraming`). */
+function FrameToSphere({ sphere }: { sphere: BoundingSphere }) {
+  const camera = useThree((st) => st.camera);
+  const controls = useThree((st) => st.controls) as
+    | { target: { set: (x: number, y: number, z: number) => void }; update: () => void }
+    | null;
+  const key = `${sphere.center.join(",")}|${sphere.radius}`;
+  useEffect(() => {
+    const [cx, cy, cz] = sphere.center;
+    const d = sphere.radius * 2.5;
+    camera.position.set(cx + d * 0.62, cy + d * 0.42, cz + d * 0.74);
+    if ("near" in camera) {
+      camera.near = Math.max(0.01, sphere.radius / 100);
+      camera.far = sphere.radius * 40;
+      camera.updateProjectionMatrix();
+    }
+    camera.lookAt(cx, cy, cz);
+    controls?.target.set(cx, cy, cz);
+    controls?.update();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, camera, controls]);
+  return null;
+}
+
 function FitOnChange({
   signature,
   active,
+  margin = 1.25,
   children,
 }: {
   signature: string;
   /** false while a component drives the camera itself */
   active: boolean;
+  margin?: number;
   children: React.ReactNode;
 }) {
   if (!active) return <group>{children}</group>;
   return (
-    <Bounds key={signature} fit clip observe margin={1.25}>
+    <Bounds key={signature} fit clip observe margin={margin}>
       {children}
     </Bounds>
   );
@@ -80,9 +107,20 @@ interface SceneData {
   selfLit: boolean;
   /** true when the mounted component drives the camera itself */
   drivesCamera: boolean;
+  /**
+   * An explicit framing sphere. Agent E's `trajectoryFraming` reserves
+   * headroom for the energy card, which a plain content fit crops off the top
+   * — and the NEB shot is the hero image of the demo.
+   */
+  framing?: BoundingSphere;
+  /** number of frames, when the scene is a trajectory */
+  frameCount?: number;
+  /** Bounds fit margin; larger pulls the camera back. */
+  margin?: number;
 }
 
-function useScene(): SceneData {
+/** `frameIndex` is a fractional frame position, or null while autoplaying. */
+function useScene(frameIndex: number | null): SceneData {
   const state = useCampaign((s) => s.state);
   const view = useCampaign((s) => s.view);
   const flythrough = useCampaign((s) => s.flythrough);
@@ -117,7 +155,7 @@ function useScene(): SceneData {
       return {
         node: <StructureView data={data} showCell highlight={undefined} />,
         signature: `structure:${artifact?.id ?? ""}:${data.positions.length}`,
-        selfLit: false,
+        selfLit: true, // StructureView mounts its own light rig
         drivesCamera: false,
         caption: artifact?.label ?? null,
       };
@@ -136,10 +174,13 @@ function useScene(): SceneData {
             energies={p.energies}
             mobileIndex={p.mobile_index}
             fps={10}
+            {...(frameIndex === null ? {} : { frameIndex, playing: false })}
           />
         ),
         signature: `trajectory:${artifact?.id ?? ""}:${p.frames.length}`,
-        selfLit: false,
+        selfLit: true, // TrajectoryView mounts its own light rig
+        framing: trajectoryFraming(p.frames, p.cell),
+        frameCount: p.frames.length,
         drivesCamera: false,
         caption:
           p.barrier_ev !== undefined
@@ -156,7 +197,7 @@ function useScene(): SceneData {
           <VoidSurface cell={p.cell} shape={p.shape} values={p.values} isoLevel={0.5} />
         ),
         signature: `void:${artifact?.id ?? ""}:${p.shape.join("x")}`,
-        selfLit: false,
+        selfLit: false, // VoidSurface mounts no lights — the shell lights it
         drivesCamera: false,
         caption:
           p.void_fraction !== undefined
@@ -257,6 +298,9 @@ function useScene(): SceneData {
           />
         ),
         signature: `tree:${nodes.map((n) => `${n.id}${n.verdict ?? ""}`).join("|")}`,
+        // A one-node tree is a single sphere; fitting it tightly fills the
+        // frame with a blob. Pull back hard when the tree is sparse.
+        margin: nodes.length <= 1 ? 4.5 : nodes.length <= 3 ? 2.2 : 1.4,
         selfLit: true,
         drivesCamera: false,
         caption: `${nodes.length} hypotheses · refuted branches go dark`,
@@ -267,6 +311,7 @@ function useScene(): SceneData {
   }, [
     view,
     flythrough,
+    frameIndex,
     payload,
     artifact,
     state,
@@ -277,16 +322,16 @@ function useScene(): SceneData {
   ]);
 }
 
-// Kept mounted so agent E's AdsorptionSites import is wired and type-checked
-// even before any campaign emits an adsorption_sites artifact.
-void AdsorptionSites;
-
 export function Viewer() {
   const state = useCampaign((s) => s.state);
   const view = useCampaign((s) => s.view);
   const setView = useCampaign((s) => s.setView);
   const selected = useCampaign((s) => s.selectedCandidateId);
-  const scene = useScene();
+  const [frameIndex, setFrameIndex] = useState<number | null>(null);
+  const scene = useScene(frameIndex);
+  useEffect(() => {
+    if (view !== "trajectory") setFrameIndex(null);
+  }, [view]);
   const flythrough = useCampaign((s) => s.flythrough);
   const setFlythrough = useCampaign((s) => s.setFlythrough);
 
@@ -341,6 +386,40 @@ export function Viewer() {
         ) : null}
       </div>
 
+      {view === "trajectory" && scene.frameCount && scene.frameCount > 1 ? (
+        <div className="no-print flex shrink-0 items-center gap-2 border-b border-rule bg-panel-2/40 px-2 py-1.5">
+          <Button
+            size="sm"
+            active={frameIndex === null}
+            onClick={() => setFrameIndex(frameIndex === null ? 0 : null)}
+            title={frameIndex === null ? "Pause the hop" : "Play the hop"}
+          >
+            {frameIndex === null ? "Playing" : "Play"}
+          </Button>
+          <input
+            type="range"
+            min={0}
+            max={scene.frameCount - 1}
+            step={0.01}
+            value={frameIndex ?? 0}
+            aria-label="Migration path frame"
+            onChange={(e) => setFrameIndex(Number(e.target.value))}
+            className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-rule
+              [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-1.5
+              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-sm
+              [&::-webkit-slider-thumb]:bg-accent
+              [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-1.5
+              [&::-moz-range-thumb]:rounded-sm [&::-moz-range-thumb]:border-none
+              [&::-moz-range-thumb]:bg-accent"
+          />
+          <span className="num w-16 text-right text-[0.625rem] text-ink-faint">
+            {frameIndex === null
+              ? `${scene.frameCount} frames`
+              : `${frameIndex.toFixed(2)} / ${scene.frameCount - 1}`}
+          </span>
+        </div>
+      ) : null}
+
       <div className="relative min-h-0 flex-1">
         <ErrorBoundary label="viewer">
           <Canvas
@@ -366,9 +445,16 @@ export function Viewer() {
               makeDefault
               enabled={!scene.drivesCamera}
             />
+            {scene.framing && !scene.drivesCamera ? (
+              <FrameToSphere
+                key={`${view}:${scene.signature}`}
+                sphere={scene.framing}
+              />
+            ) : null}
             <FitOnChange
               signature={`${view}:${scene.signature}`}
-              active={!scene.drivesCamera}
+              active={!scene.drivesCamera && !scene.framing}
+              margin={scene.margin}
             >
               {scene.node}
             </FitOnChange>

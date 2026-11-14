@@ -137,13 +137,14 @@ def fake_neb(atoms, *, barrier=0.28, converged=True):
 # Energies (eV/atom) for the fake Li-Cl hull. LiCl's formation energy comes out
 # at -4.0 - (0.5*-2.0 + 0.5*-1.0) = -2.5 eV/atom, so LiCl sits ON the hull, and
 # a candidate LiCl at the same -4.0 eV/atom must score exactly 0.0 above it.
-HULL_ENERGIES = {"mp-li": -2.0, "mp-cl": -1.0, "mp-licl": -4.0}
+HULL_ENERGIES = {"mp-li-GGA": -2.0, "mp-cl-GGA": -1.0, "mp-licl-GGA": -4.0}
 
 
 def fake_phases():
     return {
         "phases": [
             {
+                "entry_id": "mp-li-GGA",
                 "material_id": "mp-li",
                 "formula_pretty": "Li",
                 "composition": {"Li": 1.0},
@@ -151,6 +152,7 @@ def fake_phases():
                 "structure": atoms_to_dict(bulk("Li", "bcc", a=3.44)),
             },
             {
+                "entry_id": "mp-cl-GGA",
                 "material_id": "mp-cl",
                 "formula_pretty": "Cl",
                 "composition": {"Cl": 1.0},
@@ -158,6 +160,7 @@ def fake_phases():
                 "structure": atoms_to_dict(bulk("Cl", "sc", a=3.0)),
             },
             {
+                "entry_id": "mp-licl-GGA",
                 "material_id": "mp-licl",
                 "formula_pretty": "LiCl",
                 "composition": {"Li": 4.0, "Cl": 4.0},
@@ -615,15 +618,36 @@ async def test_a_phase_above_the_hull_scores_positive(worker, mp_ok):
     assert hull.value == pytest.approx(0.2, abs=1e-3)
 
 
-async def test_a_more_stable_candidate_is_not_clamped_to_zero(worker, mp_ok):
-    """A negative hull distance is the discovery signal; clamping would hide it."""
+async def test_a_known_phase_is_never_reported_below_the_hull(worker, mp_ok):
+    """A database phase cannot be a discovery.
+
+    If its own entry is missing from the hull it can come out negative, and
+    reporting that would put an existing Materials Project material at the top
+    of the frontier as something newly discovered. Clamp, and say why.
+    """
     worker.behaviour["relax_result"] = fake_relax(li_cl_crystal())
     worker.behaviour["relax_result"]["energy_per_atom"] = -4.3
     result = await AtomisticScorer().score([make_candidate()], SPEC)
     hull = next(m for m in result.measurements if m.property == "energy_above_hull")
+    assert hull.value == 0.0
+    assert "-0.3000 eV/atom and has been reported as 0.0" in hull.note
+    assert "cannot be more stable than the hull of known phases" in hull.note
+
+
+async def test_a_novel_candidate_below_the_hull_is_not_clamped(worker, mp_ok):
+    """For an invented candidate a negative distance is the discovery signal,
+    so it survives — but it must be labelled a lead, not a result."""
+    worker.behaviour["relax_result"] = fake_relax(li_cl_crystal())
+    worker.behaviour["relax_result"]["energy_per_atom"] = -4.3
+    candidate = make_candidate(
+        source="perturbation", parent_id="c-0", external_id=None, database=None
+    )
+    result = await AtomisticScorer().score([candidate], SPEC)
+    hull = next(m for m in result.measurements if m.property == "energy_above_hull")
     assert hull.value == pytest.approx(-0.3, abs=1e-3)
-    assert "below* the hull" in hull.note
     assert "Not clamped" in hull.note
+    assert "lead requiring DFT confirmation" in hull.note
+    assert "hull is complete" in hull.note
 
 
 async def test_the_hull_is_built_once_and_reused(worker, mp_ok):
@@ -685,20 +709,86 @@ async def test_a_system_missing_an_element_entirely_has_no_hull(worker, mp_ok, m
 
 async def test_a_phase_that_cannot_be_relaxed_removes_its_element_coverage(worker, mp_ok):
     """Same guard, but triggered by a relaxation failure rather than a missing entry."""
-    worker.behaviour["hull_energies"] = {"mp-li": -2.0}  # Cl and LiCl both fail
+    worker.behaviour["hull_energies"] = {"mp-li-GGA": -2.0}  # Cl and LiCl both fail
     result = await AtomisticScorer().score([make_candidate()], SPEC)
     assert "energy_above_hull" not in {m.property for m in result.measurements}
     assert "convex hull is undefined" in result.failed["c-1"]
 
 
 async def test_a_phase_that_fails_to_relax_is_excluded_and_disclosed(worker, mp_ok):
-    worker.behaviour["hull_energies"] = {"mp-li": -2.0, "mp-cl": -1.0}  # LiCl missing
+    """LiCl drops out of its own hull, so the candidate would score negative.
+
+    This is exactly the false-discovery case: the candidate IS LiCl. It must be
+    clamped to zero and the missing phase disclosed.
+    """
+    worker.behaviour["hull_energies"] = {"mp-li-GGA": -2.0, "mp-cl-GGA": -1.0}  # LiCl missing
     result = await AtomisticScorer().score([make_candidate()], SPEC)
     hull = next(m for m in result.measurements if m.property == "energy_above_hull")
     assert "failed to relax and were excluded" in hull.note
-    # Li + Cl references remain, so a hull still exists and the candidate is
-    # now below it (no competing compound) — which must not be silently hidden.
-    assert hull.value < 0
+    assert hull.value == 0.0
+    assert "its own entry is not among the phases" in hull.note
+
+
+async def test_an_unconverged_hull_phase_is_disclosed(worker, mp_ok, monkeypatch):
+    """An unconverged phase energy is an upper bound, which lifts the hull."""
+    real = worker  # keep the fixture alive
+
+    async def fake_run_worker(name, request, *, timeout=1800.0):
+        real.calls.append(request)
+        if request["op"] == "relax_many":
+            return {
+                "results": [
+                    {
+                        "label": item["label"],
+                        "energy_per_atom": HULL_ENERGIES[item["label"]],
+                        "n_atoms": len(item["atoms"]["symbols"]),
+                        "converged": item["label"] != "mp-licl-GGA",
+                        "max_force": 0.4,
+                    }
+                    for item in request["structures"]
+                ],
+                "n_ok": 3,
+                "n_failed": 0,
+            }
+        from athanor.structure import dict_to_atoms
+
+        atoms = dict_to_atoms(request["atoms"])
+        if request["op"] == "relax":
+            return fake_relax(atoms)
+        return fake_neb(atoms)
+
+    monkeypatch.setattr("athanor.scorers.atomistic.run_worker", fake_run_worker)
+    result = await AtomisticScorer().score([make_candidate()], SPEC)
+    hull = next(m for m in result.measurements if m.property == "energy_above_hull")
+    assert "did not reach fmax" in hull.note
+    assert "upper bounds" in hull.note
+
+
+async def test_the_hull_is_skipped_for_mof_water(worker, mp_ok):
+    """A MOF is a metastable framework; a dense-phase hull distance is not its
+    stability metric, and its chemical system would be hundreds of relaxations."""
+    candidate = make_candidate().model_copy(update={"domain": "mof_water"})
+    result = await AtomisticScorer().score([candidate], SPEC)
+    assert "energy_above_hull" not in {m.property for m in result.measurements}
+    assert "not the relevant" in result.failed["c-1"]
+    assert not any(c["op"] == "relax_many" for c in worker.calls)
+
+
+async def test_too_many_competing_phases_is_refused_not_truncated(worker, mp_ok, monkeypatch):
+    async def many(elements, *, max_atoms=80):
+        phases = fake_phases()
+        base = phases["phases"][0]
+        phases["phases"] = phases["phases"] + [
+            {**base, "entry_id": f"extra-{i}", "material_id": f"extra-{i}"} for i in range(500)
+        ]
+        return phases
+
+    monkeypatch.setattr("athanor.mp.acompeting_phases", many)
+    result = await AtomisticScorer().score([make_candidate()], SPEC)
+    assert "energy_above_hull" not in {m.property for m in result.measurements}
+    reason = result.failed["c-1"]
+    assert "phase budget" in reason or "-phase budget" in reason
+    assert "truncating" in reason
 
 
 async def test_skipped_large_phases_are_disclosed(worker, mp_ok, monkeypatch):

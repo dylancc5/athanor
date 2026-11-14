@@ -36,7 +36,7 @@ CACHE_DIR = Path(os.environ.get("ATHANOR_MP_CACHE", REPO_ROOT / "data" / "cache"
 
 # Bump when the shape of a cached payload changes, so stale entries are ignored
 # instead of being deserialized into the wrong fields.
-CACHE_SCHEMA = 1
+CACHE_SCHEMA = 2  # 2: phases carry entry_id + bare material_id
 
 SOURCE = "materials_project"
 
@@ -67,6 +67,19 @@ SUMMARY_FIELDS = (
 
 class MPError(RuntimeError):
     """Materials Project could not answer. Never swallowed into a default."""
+
+
+def strip_functional_suffix(entry_id: str) -> str:
+    """"mp-985583-GGA+U" -> "mp-985583".
+
+    Thermo entry ids carry the functional; summary and structure endpoints use
+    the bare material id. Joining the two without this returns nothing at all.
+    """
+    text = str(entry_id)
+    for suffix in ("-GGA+U", "-GGA", "-R2SCAN", "-r2SCAN", "-SCAN"):
+        if text.endswith(suffix):
+            return text[: -len(suffix)]
+    return text
 
 
 # --------------------------------------------------------------------------
@@ -400,9 +413,15 @@ def competing_phases(elements: list[str], *, max_atoms: int | None = 80) -> dict
             if max_atoms is not None and n_sites > int(max_atoms):
                 skipped_large += 1
                 continue
+            # `get_entries_in_chemsys` returns ids with the functional appended
+            # ("mp-985583-GGA"). Keep the raw entry id, but also expose the bare
+            # material id, because that is what every other MP endpoint uses and
+            # joining on the suffixed form silently matches nothing.
+            entry_id = str(getattr(entry, "entry_id", "") or "")
             out.append(
                 {
-                    "material_id": str(getattr(entry, "entry_id", "") or ""),
+                    "entry_id": entry_id,
+                    "material_id": strip_functional_suffix(entry_id),
                     "formula_pretty": str(structure.composition.reduced_formula),
                     "composition": {
                         str(el): float(n)
@@ -414,7 +433,7 @@ def competing_phases(elements: list[str], *, max_atoms: int | None = 80) -> dict
                     "structure": _structure_to_dict(structure),
                 }
             )
-        out.sort(key=lambda d: (d["material_id"], d["formula_pretty"]))
+        out.sort(key=lambda d: (d["entry_id"], d["formula_pretty"]))
         return {
             "phases": out,
             "skipped_large": skipped_large,

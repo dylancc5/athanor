@@ -88,7 +88,7 @@ MACE_HULL_CONFIDENCE = 0.55
 HULL_CACHE_DIR = Path(
     os.environ.get("ATHANOR_HULL_CACHE", mp.REPO_ROOT / "data" / "cache" / "mace_hull")
 )
-HULL_CACHE_SCHEMA = 1
+HULL_CACHE_SCHEMA = 2  # 2: PhaseEnergy records convergence
 
 
 class HullUnavailable(RuntimeError):
@@ -102,6 +102,7 @@ class PhaseEnergy:
     composition: dict[str, float]
     n_atoms: int
     energy_per_atom: float
+    converged: bool = True
 
 
 @dataclass(frozen=True)
@@ -159,14 +160,22 @@ class SystemHull:
             f"{self.fmax:.2f} eV/A); NOT a DFT hull distance"
         )
 
-    def caveat(self) -> str:
-        bits = [
-            (
-                f"The candidate and all {len(self.phases)} competing phases are on one MACE "
-                f"energy scale, so this is comparable across candidates but is not MP's DFT "
-                f"hull distance and the two must not be compared directly."
-            )
-        ]
+    @property
+    def n_unconverged(self) -> int:
+        return sum(1 for p in self.phases if not p.converged)
+
+    @property
+    def is_complete(self) -> bool:
+        """True when no competing phase was dropped or left unconverged.
+
+        Only on a complete hull can a negative distance be read as "more stable
+        than anything known": otherwise the candidate may simply be below a hull
+        that is missing one of its own vertices.
+        """
+        return not (self.skipped_large or self.skipped_failed or self.n_unconverged)
+
+    def exclusions(self) -> str:
+        bits = []
         if self.skipped_large:
             bits.append(
                 f"{self.skipped_large} phase(s) larger than {self.max_atoms} atoms were "
@@ -175,6 +184,25 @@ class SystemHull:
             )
         if self.skipped_failed:
             bits.append(f"{self.skipped_failed} phase(s) failed to relax and were excluded.")
+        if self.n_unconverged:
+            bits.append(
+                f"{self.n_unconverged} phase(s) did not reach fmax {self.fmax:.2f} eV/A, so "
+                f"their energies are upper bounds — that pushes the hull up and makes "
+                f"candidates look slightly more stable than they are."
+            )
+        return " ".join(bits)
+
+    def caveat(self) -> str:
+        bits = [
+            (
+                f"The candidate and all {len(self.phases)} competing phases are on one MACE "
+                f"energy scale, so this is comparable across candidates but is not MP's DFT "
+                f"hull distance and the two must not be compared directly."
+            )
+        ]
+        exclusions = self.exclusions()
+        if exclusions:
+            bits.append(exclusions)
         return " ".join(bits)
 
     def to_json(self) -> dict[str, Any]:
@@ -220,11 +248,20 @@ class HullBuilder:
     settings, because a hull built at a different `fmax` is a different hull.
     """
 
-    def __init__(self, runner, *, fmax: float = 0.05, steps: int = 120, max_atoms: int = 80):
+    def __init__(
+        self,
+        runner,
+        *,
+        fmax: float = 0.05,
+        steps: int = 120,
+        max_atoms: int = 80,
+        max_phases: int = 400,
+    ):
         self._runner = runner  # async (request, timeout) -> response
         self.fmax = fmax
         self.steps = steps
         self.max_atoms = max_atoms
+        self.max_phases = max_phases
         self._memory: dict[tuple[str, ...], SystemHull] = {}
         self._locks: dict[tuple[str, ...], asyncio.Lock] = {}
 
@@ -288,13 +325,21 @@ class HullBuilder:
                 f"Materials Project returned no phases for {'-'.join(elements)} with at most "
                 f"{self.max_atoms} atoms"
             )
+        if len(phases) > self.max_phases:
+            # Refuse rather than silently truncate: dropping an arbitrary subset
+            # of phases would move the hull by an unknown amount.
+            raise HullUnavailable(
+                f"the {'-'.join(elements)} system has {len(phases)} competing phases, over "
+                f"the {self.max_phases}-phase budget; relaxing them all would dominate the "
+                f"run, and truncating the set would move the hull by an unknown amount"
+            )
 
         # One worker call for the whole batch: the model loads once, not N times.
         response = await self._runner(
             {
                 "op": "relax_many",
                 "structures": [
-                    {"label": p["material_id"], "atoms": p["structure"]} for p in phases
+                    {"label": p["entry_id"], "atoms": p["structure"]} for p in phases
                 ],
                 "fmax": self.fmax,
                 "steps": self.steps,
@@ -302,7 +347,7 @@ class HullBuilder:
             timeout=timeout,
         )
 
-        by_id = {p["material_id"]: p for p in phases}
+        by_id = {p["entry_id"]: p for p in phases}
         energies: list[PhaseEnergy] = []
         failed = 0
         for item in response["results"]:
@@ -329,6 +374,7 @@ class HullBuilder:
                     composition=phase["composition"],
                     n_atoms=int(phase["n_sites"]),
                     energy_per_atom=value,
+                    converged=bool(item.get("converged", True)),
                 )
             )
 
@@ -392,9 +438,15 @@ class AtomisticScorer:
         "relaxation_displacement",
         "migration_barrier",
         "energy_above_hull",  # MACE-derived, available for every candidate
-        "energy_above_hull_dft",  # Materials Project DFT, retrieved candidates only
         "band_gap",
     )
+    # Deliberately NOT in `properties`: that tuple is the vocabulary the intake
+    # agent may draw objectives from, and `pareto.rank()` excludes any candidate
+    # missing an objective. `energy_above_hull_dft` exists only for candidates
+    # retrieved from Materials Project, so offering it as an objective would
+    # silently drop every invented candidate from the frontier — the exact bug
+    # the MACE hull exists to fix. It is still emitted as a measurement.
+    extra_properties: tuple[str, ...] = ("energy_above_hull_dft",)
 
     def __init__(
         self,
@@ -590,7 +642,9 @@ class AtomisticScorer:
         )
 
         # ---- MACE convex hull, for every candidate ----------------------
-        await self._mace_hull(candidate, atoms, relax, relax_ood, result, failures)
+        await self._mace_hull(
+            candidate, atoms, relax, relax_ood, result, failures, is_known_phase=mp_entry is not None
+        )
 
         # ---- migration barrier -----------------------------------------
         if candidate.domain == "solid_electrolyte":
@@ -609,6 +663,8 @@ class AtomisticScorer:
         relax_ood: bool,
         result: ScoreResult,
         failures: list[str],
+        *,
+        is_known_phase: bool,
     ) -> None:
         """`energy_above_hull` for any candidate, invented or retrieved.
 
@@ -620,6 +676,17 @@ class AtomisticScorer:
         """
         if not self.use_mace_hull:
             failures.append("energy_above_hull: MACE hull construction disabled")
+            return
+        if candidate.domain != "solid_electrolyte":
+            # A MOF is a metastable open framework: it is *always* far above the
+            # hull of dense phases, so the distance says nothing about whether it
+            # is makeable, and the chemical system (Zn-C-H-N-O and every
+            # subsystem) would mean hundreds of relaxations for that non-answer.
+            failures.append(
+                f"energy_above_hull: not computed for the {candidate.domain} domain — a "
+                f"hull distance against dense competing phases is not the relevant "
+                f"stability measure for an open framework, and would be misleading here."
+            )
             return
 
         composition: dict[str, float] = {}
@@ -643,11 +710,37 @@ class AtomisticScorer:
 
         note = hull.caveat()
         if value < -0.001:
-            note = (
-                f"Negative: on MACE's energy scale this sits {abs(value):.3f} eV/atom *below* "
-                f"the hull of everything Materials Project knows for {hull.label}, i.e. it is "
-                f"predicted more stable than any known phase. Not clamped to zero. " + note
-            )
+            if is_known_phase:
+                # This candidate IS one of the known phases of this system. It
+                # cannot genuinely sit below the hull of known phases; it only
+                # appears to because its own entry was excluded (too large, or
+                # failed to relax) or because of MACE noise. Reporting the
+                # negative number would put a database entry at the top of the
+                # frontier as a "discovery", which would be false.
+                note = (
+                    f"Raw hull distance came out at {value:+.4f} eV/atom and has been "
+                    f"reported as 0.0: this is an existing Materials Project phase, so it "
+                    f"cannot be more stable than the hull of known phases. The negative "
+                    f"value means its own entry is not among the phases used to build this "
+                    f"hull. " + note
+                )
+                value = 0.0
+            else:
+                note = (
+                    f"Negative: on MACE's energy scale this sits {abs(value):.4f} eV/atom "
+                    f"below the hull of the {len(hull.phases)} {hull.label} phases relaxed "
+                    f"here. Not clamped. Read it as a lead requiring DFT confirmation, not a "
+                    f"result: a sub-hull prediction from a machine-learned potential is "
+                    f"within that potential's own error bar, and "
+                    + (
+                        "this hull is complete, so no known phase was omitted."
+                        if hull.is_complete
+                        else "this hull is incomplete (see below), so a missing phase may "
+                        "be the real explanation."
+                    )
+                    + " "
+                    + note
+                )
         self._add(
             result,
             Measurement(

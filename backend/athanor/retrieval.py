@@ -668,31 +668,59 @@ class CsvPropertySource:
 # Named water-harvesting frameworks
 # --------------------------------------------------------------------------
 
-#: Water-harvesting MOFs that genuinely exist in open databases, with the
-#: archive and member that actually holds each one.
+#: Small aluminium carboxylate frameworks from the ODAC promising-MOF archive,
+#: used as the cheap water-adsorption seed set.
+#:
+#: These are deliberately labelled by **refcode and measured composition**, not
+#: by a trade name. An earlier version of this table called the `cm503311x_alf*`
+#: entries "Al-fumarate (A520)" on the strength of the `alf` in the filename.
+#: That was wrong, and checking the composition is what caught it: these have
+#: 8 C and 4 carboxylate O per Al, which is an aromatic dicarboxylate linker
+#: (terephthalate-type, so MIL-53/CAU-10 family), whereas Al-fumarate has 4 C
+#: per Al. Database name fields and filenames are not evidence; match on
+#: composition, space group and cell.
+#:
+#: Every one of these ships with **no hydrogen atoms at all**. That is a real
+#: limitation, not a cosmetic one: the aromatic C-H and the bridging mu-OH
+#: proton are both missing, and a mu-O without its proton is a different
+#: adsorption site for water than a mu-OH. `Odac23Scorer` flags frameworks with
+#: no hydrogen as out-of-distribution for exactly this reason.
 #:
 #: MOF-303 is deliberately absent: it is in no open database (checked CoRE
-#: 2019, CoRE 2024, QMOF, COD), and inventing an identifier for it would be
-#: fabrication. Al-fumarate is the cheapest real water harvester available.
+#: 2019, CoRE 2024, QMOF and COD), and inventing an identifier for it would be
+#: fabrication. A genuinely named harvester would come from CoRE MOF 2019
+#: (`DOYBEA`, an Al framework) — but that needs the 81 MB archive below and its
+#: composition verified before it earns a name here.
 WATER_HARVESTERS: list[dict[str, Any]] = [
     {
-        "name": "Al-fumarate (A520, 350 K form)",
+        "name": "Al(F)(aromatic dicarboxylate) [cm503311x_alf350K]",
         "archive": "odac_promising_mof",
         "refcode": "cm503311x_alf350K",
         "n_atoms": 56,
-        "note": "aluminium fumarate, the basis of Basolite A520",
+        "formula": "C32Al4F4O16",
+        "note": (
+            "fluoride-bridged aluminium aryl-dicarboxylate, MIL-53-type; "
+            "structure contains no hydrogen"
+        ),
     },
     {
-        "name": "Al-fumarate (A520, 400 K form)",
+        "name": "Al(F)(aromatic dicarboxylate) [cm503311x_alf400K]",
         "archive": "odac_promising_mof",
         "refcode": "cm503311x_alf400K",
         "n_atoms": 56,
+        "formula": "C32Al4F4O16",
+        "note": "same framework, different reported temperature; no hydrogen",
     },
     {
-        "name": "Al-hydroxide dicarboxylate (CAU-10-like, 225 K form)",
+        "name": "Al(O)(aromatic dicarboxylate) [cm503311x_aloh225K]",
         "archive": "odac_promising_mof",
         "refcode": "cm503311x_aloh225K",
         "n_atoms": 56,
+        "formula": "C32Al4O20",
+        "note": (
+            "oxygen-bridged aluminium aryl-dicarboxylate, CAU-10-type; the "
+            "bridging mu-OH proton is absent from the deposited structure"
+        ),
     },
 ]
 

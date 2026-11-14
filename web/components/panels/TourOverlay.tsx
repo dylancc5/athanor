@@ -73,22 +73,31 @@ export function TourOverlay() {
       if (s.tour && s.cursor < s.events.length) play();
     }, beat.dwellMs);
 
-    return () => {
+    // NO cleanup that clears `timer` here. This effect re-runs the moment
+    // `setHolding(true)` lands, so a cleanup would cancel the dwell timer it
+    // had just set and the tour would freeze on its first caption forever.
+    // The timer is cleared when the tour stops and on unmount, below.
+    // state is intentionally a dependency: beats can match on derived state
+  }, [tour, cursor, events, state, holding, pause, play, setTourCaption, setView]);
+
+  // Stop any pending dwell when the tour is switched off, and on unmount.
+  useEffect(() => {
+    if (tour) return;
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  }, [tour]);
+
+  useEffect(
+    () => () => {
       if (timer.current !== null) {
         clearTimeout(timer.current);
         timer.current = null;
       }
-    };
-    // state is intentionally a dependency: beats can match on derived state
-  }, [tour, cursor, events, state, holding, pause, play, setTourCaption, setView]);
-
-  // when the campaign ends, leave the last caption up
-  useEffect(() => {
-    if (!tour) return;
-    return () => {
-      if (timer.current !== null) clearTimeout(timer.current);
-    };
-  }, [tour]);
+    },
+    [],
+  );
 
   if (!tour || !caption) return null;
 

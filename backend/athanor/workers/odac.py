@@ -138,7 +138,21 @@ def get_calculator():
         import torch
         from fairchem.core import OCPCalculator
 
-        _calc = OCPCalculator(
+        class SeededOCPCalculator(OCPCalculator):
+            """Reseeds before every evaluation, so each pass is independent of
+            how many passes preceded it.
+
+            The seed has to be applied here rather than at the call sites: an
+            ASE optimizer drives the calculator directly during a relaxation,
+            so seeding only around explicit energy calls would leave every
+            relaxation step unseeded.
+            """
+
+            def calculate(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                torch.manual_seed(FORWARD_SEED)
+                return super().calculate(*args, **kwargs)
+
+        _calc = SeededOCPCalculator(
             model_name=MODEL, local_cache=LOCAL_CACHE, cpu=True, seed=0
         )
         model = _calc.trainer.model
@@ -148,26 +162,13 @@ def get_calculator():
                     if isinstance(getattr(module, attr, None), float):
                         setattr(module, attr, 0.0)
         model.eval()
-        torch.set_grad_enabled(True)  # forces are taken by autograd
     return _calc
 
 
-class _SeededCalculator:
-    """Marker type kept out of the way; seeding happens in `_energy`."""
-
-
 def _energy(atoms) -> float:
-    """One forward pass, seeded so it is reproducible and history-independent.
-
-    The seed is reapplied on every call. Without this the n-th evaluation in a
-    process depends on how many came before it, which would make an adsorption
-    energy depend on how many sites were screened ahead of it.
-    """
-    import torch
-
+    """One forward pass. Clears any cached result so the pass really happens."""
     atoms.calc = get_calculator()
     atoms.calc.results = {}
-    torch.manual_seed(FORWARD_SEED)
     e = float(atoms.get_potential_energy())
     if not np.isfinite(e):
         raise ValueError(f"model returned a non-finite energy: {e}")

@@ -450,7 +450,16 @@ async def main() -> None:
     )
 
     ledger.wall_seconds = round(log.events[-1].t, 1)
-    ledger.est_dft_cpu_hours = round(ledger.candidates_scored * 420.0, 1)
+    # An ESTIMATE, with a stated basis, not a measurement. A plane-wave DFT
+    # CI-NEB on a ~60-atom cell is ~9 images plus 2 relaxed endpoints, and each
+    # of those costs on the order of 40 core-hours at converged settings — call
+    # it ~400 core-hours per candidate, order of magnitude. The UI labels this
+    # as an estimate; it must never be presented as something we measured.
+    DFT_CORE_HOURS_PER_IMAGE = 40.0
+    IMAGES_PER_NEB = 11
+    ledger.est_dft_cpu_hours = round(
+        ledger.candidates_scored * DFT_CORE_HOURS_PER_IMAGE * IMAGES_PER_NEB, 1
+    )
     log.emit(C.LedgerUpdated(ledger=ledger))
 
     lead = [p.candidate_id for p in pareto if p.rank == 0] or [c.id for c in candidates[:1]]

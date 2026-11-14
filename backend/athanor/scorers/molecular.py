@@ -48,6 +48,26 @@ log = logging.getLogger("athanor.scorers.molecular")
 
 EV_PER_KJ_MOL = 96.48533212
 
+# --------------------------------------------------------------------------
+# Measured accuracy of the ODAC water-adsorption pipeline
+# --------------------------------------------------------------------------
+# These are not guesses. They come from running `Odac23Scorer`'s exact shipped
+# configuration over the 8 smallest frameworks in the ODAC promising-MOF
+# archive that carry published DFT reference water adsorption energies
+# (`promising_pristine_MOFs.csv`), and comparing. The script is kept out of the
+# package; the numbers are quoted in every measurement note so a reader never
+# has to take the pipeline's accuracy on trust.
+#
+# Caveat that belongs with them: those reference values are ODAC23 *training*
+# data, so this is an in-distribution check, not an out-of-sample test.
+ODAC_VALIDATION_N = 8
+ODAC_MAE_EV = 0.22
+ODAC_MEAN_SIGNED_ERROR_EV = 0.19
+ODAC_SPEARMAN = 0.43
+#: Resolution limit of GFN2-xTB polymorph energy differences, in kJ/mol. Set
+#: from the measured inversions on real polymorph pairs; see Gfn2XtbScorer.
+GFN2_POLYMORPH_RESOLUTION_KJ_MOL = 3.0
+
 
 def _artifact(candidate_id: str, kind: str, label: str, prefix: str) -> Artifact:
     aid = f"a-{prefix}-{candidate_id}"
@@ -152,6 +172,17 @@ class Gfn2XtbScorer:
                 result.failed[cand.id] = f"non-finite lattice energy: {value!r}"
                 continue
 
+            # The gas-phase reference's frontier orbitals come back with the
+            # lattice energy, which is the only way a crystal candidate gets a
+            # molecular gap: the Gamma-point orbitals of a periodic cell are
+            # not the molecular HOMO-LUMO gap.
+            self._emit_gap(
+                cand,
+                r,
+                result,
+                shared_across_polymorphs=True,
+            )
+
             result.measurements.append(
                 Measurement(
                     candidate_id=cand.id,
@@ -166,9 +197,21 @@ class Gfn2XtbScorer:
                     note=(
                         f"lattice energy per molecule, Z={r.get('z_total')} in a "
                         f"{r.get('supercell')} supercell. Gamma point only. "
-                        f"Semiempirical: GFN2-xTB reproduces polymorph *ordering* far "
-                        f"better than absolute sublimation enthalpies, so the "
-                        f"difference between polymorphs is the trustworthy part."
+                        f"Semiempirical, and the ABSOLUTE value is not reliable: "
+                        f"measured values here run 15-25% below experimental "
+                        f"sublimation enthalpies. Only differences between "
+                        f"polymorphs of the same molecule are meaningful, and even "
+                        f"those resolve only down to about "
+                        f"{GFN2_POLYMORPH_RESOLUTION_KJ_MOL:.0f} kJ/mol."
+                        + (
+                            " The gas-phase reference for this molecule is a "
+                            "ZWITTERION, which is not a gas-phase minimum (it "
+                            "tautomerises to the neutral form), so this absolute "
+                            "lattice energy is especially unreliable; it cancels "
+                            "exactly in polymorph differences."
+                            if r.get("gas_reference_zwitterionic")
+                            else ""
+                        )
                         + ("" if r.get("converged") else " Geometry did NOT converge.")
                     ),
                 )
@@ -195,9 +238,30 @@ class Gfn2XtbScorer:
         except Exception as exc:  # noqa: BLE001
             log.info("gap failed for %s: %s", cand.id, exc)
             return
+        self._emit_gap(cand, g, result, shared_across_polymorphs=False)
+
+    def _emit_gap(
+        self,
+        cand: Candidate,
+        g: dict[str, Any],
+        result: ScoreResult,
+        *,
+        shared_across_polymorphs: bool,
+    ) -> None:
         gap = g.get("homo_lumo_gap_ev")
         if not _finite(gap):
+            if g.get("orbital_error"):
+                result.failed[f"{cand.id}:gap"] = (
+                    f"HOMO-LUMO gap unavailable: {g['orbital_error']}"
+                )
             return
+        shared = (
+            " Computed on the isolated molecule, so every polymorph of this "
+            "molecule gets the SAME value: it separates molecules, never "
+            "polymorphs of one molecule."
+            if shared_across_polymorphs
+            else ""
+        )
 
         result.measurements.append(
             Measurement(
@@ -212,7 +276,7 @@ class Gfn2XtbScorer:
                 note=(
                     "GFN2-xTB frontier-orbital gap. A real computed quantity, but a "
                     "semiempirical one: it is not an experimental optical or "
-                    "electrochemical gap."
+                    "electrochemical gap." + shared
                 ),
             )
         )
@@ -237,7 +301,7 @@ class Gfn2XtbScorer:
                     "pathway (hydrolysis, photolysis, excipient reactions), the "
                     "solid-state environment, humidity, pH or temperature. Two "
                     "molecules with the same gap can have very different shelf "
-                    "lives."
+                    "lives." + shared
                 ),
             )
         )
@@ -274,7 +338,7 @@ class Gfn2XtbScorer:
                             "GFN2-xTB lattice energy difference against the most "
                             "stable polymorph in this batch"
                         ),
-                        confidence=0.6,
+                        confidence=0.3,
                         is_proxy=False,
                         note=(
                             f"0 is the most stable polymorph found in this batch: "
@@ -285,7 +349,13 @@ class Gfn2XtbScorer:
                             f"gas-phase reference cancels exactly in this difference. "
                             f"Lattice energy alone omits thermal and entropic terms, "
                             f"so it does not by itself establish which form is stable "
-                            f"at room temperature."
+                            f"at room temperature. RESOLUTION LIMIT: measured "
+                            f"against real polymorph pairs this method got aspirin's "
+                            f"ordering right but INVERTED glycine (alpha vs gamma) "
+                            f"and paracetamol (II vs I), with the inversions "
+                            f"spanning 1.4-2.6 kJ/mol. Treat differences below about "
+                            f"{GFN2_POLYMORPH_RESOLUTION_KJ_MOL:.0f} kJ/mol as "
+                            f"unresolved rather than as a ranking."
                         ),
                     )
                 )
@@ -304,9 +374,10 @@ class Odac23Scorer:
 
       * `water_adsorption_energy` — the ODAC23 checkpoint's prediction for a
         single water molecule in the framework. A real calculation, validated
-        against published DFT references (see `workers/odac.py`): it reports
-        **weaker** binding than an exhaustive search by a mean of +0.395 eV, so
-        treat it as an upper bound.
+        against published DFT references (see `workers/odac.py`): it tends to
+        **under-bind**, by a mean of `ODAC_MEAN_SIGNED_ERROR_EV`, though
+        individual frameworks can overshoot, so this is a tendency and not a
+        bound.
       * `void_fraction`, `pore_diameter`, `surface_area` — pure geometry from
         atom positions and vdW radii. No model, no fitting.
 
@@ -329,7 +400,7 @@ class Odac23Scorer:
         n_sites: int = 4,
         n_orientations: int = 4,
         n_relax: int = 3,
-        relax_steps: int = 40,
+        relax_steps: int = 80,
         grid_spacing: float = 0.6,
         timeout: float = 3600.0,
     ):
@@ -469,6 +540,7 @@ class Odac23Scorer:
             result.failed[cand.id] = f"non-finite adsorption energy: {e_ads!r}"
             return
         e_ads = float(e_ads)
+        no_hydrogen = "H" not in set(atoms.get_chemical_symbols())
 
         result.measurements.append(
             Measurement(
@@ -478,21 +550,37 @@ class Odac23Scorer:
                 unit="eV",
                 source=self.name,
                 method=r.get("method"),
-                confidence=0.5,
-                ood_flag=False,
+                confidence=0.35 if no_hydrogen else 0.5,
+                ood_flag=no_hydrogen,
                 is_proxy=False,
                 note=(
                     "Binding energy of ONE water molecule at 0 K, from the ODAC23 "
-                    "EquiformerV2 checkpoint. Negative is favourable. An UPPER BOUND "
-                    "on binding strength: against 8 published DFT reference energies "
-                    "this pipeline reports weaker binding by a mean of +0.395 eV "
-                    "(MAE 0.395 eV), because it screens a few deterministic "
-                    f"placements ({r.get('n_placements_screened')} here, "
-                    f"{r.get('n_relaxed')} relaxed) where the references come from an "
-                    "exhaustive search with full DFT relaxation. The framework is "
-                    "held rigid. This is NOT water uptake: uptake is a loading "
-                    "isotherm at a given temperature and humidity, which cannot be "
-                    "computed from a single-molecule binding energy."
+                    "EquiformerV2 checkpoint. Negative is favourable. "
+                    "ACCURACY: against 8 published DFT reference energies for these "
+                    "same frameworks this pipeline UNDER-BINDS by a mean of "
+                    f"{ODAC_MEAN_SIGNED_ERROR_EV:+.2f} eV "
+                    f"(MAE {ODAC_MAE_EV:.2f} eV, Spearman "
+                    f"{ODAC_SPEARMAN:.2f} over 8 frameworks). That is a TENDENCY, "
+                    "not a bound: individual values do overshoot and bind more "
+                    "strongly than the reference. The gap is site sampling, not the "
+                    "energy model — it screens a few deterministic placements "
+                    f"({r.get('n_placements_screened')} here, {r.get('n_relaxed')} "
+                    "relaxed) against a rigid framework, where the references come "
+                    "from an exhaustive search with full DFT relaxation. Note also "
+                    "that those references are ODAC23 training data, so the "
+                    "comparison is in-distribution and flatters the model. "
+                    "This is NOT water uptake: uptake is a loading isotherm at a "
+                    "given temperature and humidity, which cannot be computed from "
+                    "a single-molecule binding energy."
+                    + (
+                        " OUT OF DISTRIBUTION: this framework contains no hydrogen "
+                        "atoms at all. Aromatic C-H and any bridging mu-OH proton "
+                        "are missing from the deposited structure, and a bare mu-O "
+                        "is a different site for water than a mu-OH, so the binding "
+                        "energy is for a framework that is not quite the real one."
+                        if no_hydrogen
+                        else ""
+                    )
                 ),
             )
         )
@@ -604,24 +692,32 @@ class RdkitScorer:
             if mol is None:
                 raise ValueError(f"unparseable SMILES: {cand.structure[:60]!r}")
             return mol
-        # A crystal: perceive one molecule out of it rather than guessing.
-        from rdkit.Chem import rdDetermineBonds
 
+        # A crystal. One molecule has to be lifted out of the cell properly,
+        # which means following bonds under the minimum-image convention and
+        # unwrapping whatever crosses a cell boundary. Feeding the whole cell
+        # to RDKit as a flat XYZ does not work: a molecule split across the
+        # boundary comes back with atoms that have no bonds at all, and bond
+        # perception fails outright ("Unable to determine valence of atom ...
+        # with 0 bonds"). That logic already exists in the xtb worker, whose
+        # top-level imports are only numpy/ase/athanor.structure, so it is
+        # safe to use here in the server environment.
         from ..structure import parse_structure
+        from ..workers.xtb import _canonical_smiles, analyze_crystal
 
         atoms = parse_structure(cand.structure, cand.repr_kind)
-        lines = [str(len(atoms)), ""]
-        for sym, pos in zip(atoms.get_chemical_symbols(), atoms.get_positions()):
-            lines.append(f"{sym} {pos[0]:.6f} {pos[1]:.6f} {pos[2]:.6f}")
-        raw = Chem.MolFromXYZBlock("\n".join(lines))
-        if raw is None:
-            raise ValueError("RDKit could not read the structure geometry")
-        rdDetermineBonds.DetermineBonds(raw, charge=0)
-        frags = Chem.GetMolFrags(raw, asMols=True, sanitizeFrags=False)
-        if not frags:
-            raise ValueError("no molecular fragment found")
-        # Largest fragment; a crystal cell holds Z copies of the same molecule.
-        return max(frags, key=lambda m: m.GetNumAtoms())
+        info = analyze_crystal(atoms)
+        if len(info["formulas"]) != 1:
+            raise ValueError(
+                "cell contains more than one distinct molecule "
+                f"({', '.join(info['formulas'])}); descriptors for a hydrate, "
+                "solvate or co-crystal are ambiguous"
+            )
+        smiles = _canonical_smiles(info["molecules"][0])
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            raise ValueError(f"perceived SMILES would not parse: {smiles!r}")
+        return mol
 
     def _descriptors(self, cand: Candidate, mol: Any, result: ScoreResult) -> None:
         from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors

@@ -174,7 +174,10 @@ class Ledger(Model):
     llm_output_tokens: int = 0
     scorer_seconds: float = 0.0
     wall_seconds: float = 0.0
-    est_dft_cpu_hours: float = 0.0  # what the same screen would cost with DFT
+    # An order-of-magnitude ESTIMATE of what the same screen would have cost in
+    # plane-wave DFT, derived from a stated per-image core-hour figure — not a
+    # measurement, and never to be displayed as one.
+    est_dft_cpu_hours: float = 0.0
 
 
 # --------------------------------------------------------------------------

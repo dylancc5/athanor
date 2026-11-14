@@ -313,7 +313,11 @@ async def test_adsorption_energy_and_pore_geometry(monkeypatch, mof_candidate):
     assert ads.unit == "eV"
     assert ads.is_proxy is False  # it is the quantity actually computed
     assert "NOT water uptake" in ads.note
-    assert "upper bound" in ads.note.lower()
+    # The accuracy claim must be a measured tendency, not a bound: validation
+    # showed individual frameworks binding more strongly than the reference.
+    assert "under-bind" in ads.note.lower()
+    assert "not a bound" in ads.note.lower()
+    assert "in-distribution" in ads.note.lower()
 
     # Geometry came through too, and is not a proxy.
     assert 0.0 <= by_prop["void_fraction"].value <= 1.0
@@ -465,6 +469,83 @@ async def test_every_proxy_explains_itself(monkeypatch, mof_candidate):
 # --------------------------------------------------------------------------
 # One real calculation through the real worker
 # --------------------------------------------------------------------------
+
+
+async def test_crystal_candidate_gets_a_gap_from_the_gas_reference(monkeypatch):
+    """Campaign 3's seeds are all CIFs, so the gap must reach them too.
+
+    A periodic cell's Gamma-point orbitals are not the molecular gap, so the
+    gap comes from the relaxed gas-phase reference that the lattice-energy
+    calculation already builds.
+    """
+    async def worker(name, request, **kwargs):
+        assert request["op"] == "lattice_energy"
+        return {
+            "lattice_energy_ev_per_molecule": -1.14,
+            "gas_reference_smiles": "[NH3+]CC(=O)[O-]",
+            "gas_reference_zwitterionic": True,
+            "homo_lumo_gap_ev": 4.755,
+            "homo_ev": -11.0,
+            "lumo_ev": -6.245,
+            "converged": True,
+            "z_total": 16,
+            "supercell": [2, 2, 2],
+            "method": "fake",
+        }
+
+    monkeypatch.setattr(molecular, "run_worker", worker)
+    result = await Gfn2XtbScorer().score(
+        [crystal_candidate("c-gly")], spec_for("drug_stability", "lattice_energy")
+    )
+    by_prop = {m.property: m for m in result.measurements}
+    assert by_prop["homo_lumo_gap"].value == pytest.approx(4.755)
+    assert "SAME value" in by_prop["homo_lumo_gap"].note
+    assert by_prop["degradation_susceptibility"].is_proxy is True
+
+    # A zwitterionic gas reference makes the absolute lattice energy unreliable,
+    # and the note has to say so.
+    assert "ZWITTERION" in by_prop["lattice_energy"].note
+
+
+async def test_rdkit_gets_the_right_molecule_out_of_a_real_cif():
+    """A molecule split across the cell boundary must be unwrapped, not
+    bond-perceived as a flat XYZ of the whole cell (which fails outright)."""
+    from athanor import retrieval
+
+    expected = {"4513002": 75.07, "2104364": 151.16, "7126911": 180.16}
+    for cod_id, mw in expected.items():
+        record = retrieval.fetch("cod", cod_id)
+        cand = Candidate(
+            id=f"c-{cod_id}",
+            name=f"COD {cod_id}",
+            structure=str(record.structure),
+            repr_kind="cif",
+            domain="drug_stability",
+            provenance=Provenance(source="retrieval", database="cod", external_id=cod_id),
+        )
+        result = await RdkitScorer().score(
+            [cand], spec_for("drug_stability", "molecular_weight")
+        )
+        assert result.failed == {}, result.failed
+        got = next(m for m in result.measurements if m.property == "molecular_weight")
+        assert got.value == pytest.approx(mw, abs=0.05)
+
+
+async def test_relative_polymorph_note_states_the_resolution_limit(monkeypatch):
+    four_atom = MINI_CIF.replace(
+        "H2 0.0925 0.0 0.0",
+        "H2 0.0925 0.0 0.0\nH3 0.0 0.5 0.0\nH4 0.0925 0.5 0.0",
+    )
+    monkeypatch.setattr(molecular, "run_worker", _fake_lattice({2: -1.5, 4: -1.0}))
+    result = await Gfn2XtbScorer().score(
+        [crystal_candidate("c-a"), crystal_candidate("c-b", four_atom)],
+        spec_for("drug_stability", "lattice_energy"),
+    )
+    rel = next(m for m in result.measurements if m.property == "relative_polymorph_energy")
+    assert rel.confidence <= 0.35, "an inverted ordering cannot be high confidence"
+    note = rel.note.lower()
+    assert "resolution limit" in note
+    assert "inverted" in note
 
 
 async def test_real_gfn2_xtb_water_energy_through_the_worker():

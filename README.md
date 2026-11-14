@@ -84,7 +84,9 @@ A straight-line interpolation between adjacent lithium sites gives barriers arou
 
 The implementation that survives: expand to a supercell so the ion can't see its own periodic image, remove one lithium to create the vacancy that mediates real migration, **pin the hopping ion** during endpoint relaxation, run climbing-image NEB, and score the barrier as the **maximum uphill climb** along the profile rather than peak-minus-endpoint — because migration in these materials passes through a metastable interstitial that the naive metric hides.
 
-Validated against published values: **Li₃PS₄ = 0.280 eV** (literature 0.2–0.5 eV).
+Validated against published values: **Li₃PS₄ = 0.28 eV** (literature 0.2–0.5 eV). The
+recorded hero campaign in `campaigns/li-conductor/` reproduces it at 0.282 eV, alongside
+0.138, 0.170 and 0.587 eV for three other lithium conductors.
 
 Three plausible-looking implementations, two of them silently wrong by orders of magnitude. This is exactly the failure mode the Skeptic and the `ood_flag` exist to catch.
 
@@ -100,7 +102,7 @@ cp .env.example .env     # add ANTHROPIC_API_KEY and a free MP_API_KEY
 
 # backend: server env + one isolated env per scorer
 cd backend && uv sync
-make envs                # or see backend/README.md
+make envs                # builds one isolated env per scorer; see backend/Makefile
 
 # replay a recorded campaign — no API key, no model weights needed
 uv run uvicorn athanor.api:app --port 8000
