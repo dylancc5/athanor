@@ -645,8 +645,11 @@ class Odac23Scorer:
                     "zero-point energy and all entropic terms, so it is not a free "
                     "energy at any temperature; (5) it excludes the sensible heat of "
                     "heating the framework itself, which is a large part of a real "
-                    "regeneration budget. Use it to rank frameworks, never as a "
-                    "thermal duty."
+                    "regeneration budget. (6) it inherits everything wrong with "
+                    "the adsorption energy it is derived from, including the weak "
+                    f"rank correlation (Spearman {ODAC_SPEARMAN:.2f}) against "
+                    "reference energies — so it is NOT a reliable way to rank "
+                    "frameworks either, and it is never a thermal duty."
                 ),
             )
         )

@@ -438,15 +438,28 @@ class AtomisticScorer:
         "relaxation_displacement",
         "migration_barrier",
         "energy_above_hull",  # MACE-derived, available for every candidate
-        "band_gap",
     )
-    # Deliberately NOT in `properties`: that tuple is the vocabulary the intake
-    # agent may draw objectives from, and `pareto.rank()` excludes any candidate
-    # missing an objective. `energy_above_hull_dft` exists only for candidates
-    # retrieved from Materials Project, so offering it as an objective would
-    # silently drop every invented candidate from the frontier — the exact bug
-    # the MACE hull exists to fix. It is still emitted as a measurement.
-    extra_properties: tuple[str, ...] = ("energy_above_hull_dft",)
+    # Measured and reported, but deliberately NOT in `properties`.
+    #
+    # `properties` is the vocabulary the intake agent may draw objectives from,
+    # and `pareto.rank()` excludes any candidate missing an objective. Both keys
+    # below exist only for candidates retrieved from Materials Project, so
+    # offering either as an objective would silently delete every invented
+    # candidate from the frontier — the exact bug the MACE hull exists to fix.
+    #
+    #   energy_above_hull_dft  MP's DFT hull distance; no MP record, no value.
+    #   band_gap               needs electronic structure, and MACE-MP-0 is a
+    #                          force field. It is structurally uncomputable for
+    #                          a candidate we invented, so as an objective it is
+    #                          not an objective at all — it is a filter that
+    #                          removes the whole generation branch from the one
+    #                          view where candidates visibly compete.
+    #
+    # Please don't add either one back here. Both are still emitted as
+    # measurements for retrieved candidates, `band_gap` honestly flagged
+    # `is_proxy` for the electrochemical window, and both belong in the
+    # measurements table — just not in the objective vocabulary.
+    extra_properties: tuple[str, ...] = ("energy_above_hull_dft", "band_gap")
 
     def __init__(
         self,

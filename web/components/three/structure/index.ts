@@ -55,6 +55,11 @@ export { CoordinationPolyhedra } from "./CoordinationPolyhedra";
 export { EnergyReadout } from "./EnergyReadout";
 export { IonPath, SiteGhost, useGlowTexture, useIonCurve } from "./IonPath";
 export { StructureLights } from "./Lights";
+export {
+  STRUCTURE_FONT_CHARACTERS,
+  STRUCTURE_FONT_URL,
+  TEXT_FONT_PROPS,
+} from "./font";
 export { UnitCell } from "./UnitCell";
 
 // --- additive: data helpers ------------------------------------------------

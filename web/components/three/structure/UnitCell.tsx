@@ -16,6 +16,8 @@
 import { useMemo } from "react";
 import { Billboard, Line, Text } from "@react-three/drei";
 
+import { TEXT_FONT_PROPS } from "./font";
+
 import { applyMat3 } from "../../../lib/structure-parse";
 import type { Vec3 } from "./types";
 
@@ -160,6 +162,7 @@ export function UnitCell({
               </mesh>
               <Billboard position={labelAt}>
                 <Text
+          {...TEXT_FONT_PROPS}
                   fontSize={fontSize}
                   color={AXIS_COLORS[i]}
                   anchorX="center"

@@ -16,6 +16,8 @@
 
 import { useEffect, useMemo } from "react";
 import { Billboard, Line, Text } from "@react-three/drei";
+
+import { TEXT_FONT_PROPS } from "./font";
 import * as THREE from "three";
 
 import type { Vec3 } from "./types";
@@ -135,6 +137,7 @@ export function EnergyReadout({
 
       {shownTitle && (
         <Text
+          {...TEXT_FONT_PROPS}
           renderOrder={102}
           position={[-width / 2, height * 0.82, 0]}
           fontSize={fontSize}
@@ -189,6 +192,7 @@ export function EnergyReadout({
       </mesh>
 
       <Text
+          {...TEXT_FONT_PROPS}
         renderOrder={102}
         position={[-width / 2, -height * 0.82, 0]}
         fontSize={fontSize * 0.95}
@@ -205,6 +209,7 @@ export function EnergyReadout({
 
       {barrierEv != null && Number.isFinite(barrierEv) && (
         <Text
+          {...TEXT_FONT_PROPS}
           renderOrder={102}
           position={[width / 2, -height * 0.82, 0]}
           fontSize={fontSize * 0.95}
@@ -221,6 +226,7 @@ export function EnergyReadout({
       )}
 
       <Text
+          {...TEXT_FONT_PROPS}
         renderOrder={102}
         position={[width / 2, height * 0.82, 0]}
         fontSize={fontSize}

@@ -19,6 +19,8 @@
 
 import { useMemo } from "react";
 import { Billboard, Text } from "@react-three/drei";
+
+import { TEXT_FONT_PROPS } from "./font";
 import * as THREE from "three";
 
 import { inferBonds } from "../../../lib/structure-parse";
@@ -153,6 +155,7 @@ function AdsorptionSitesInner({
             {showEnergyLabels && guest.energy_ev != null && (
               <Billboard position={labelAt}>
                 <Text
+          {...TEXT_FONT_PROPS}
                   fontSize={labelSize}
                   color={color}
                   anchorX="center"

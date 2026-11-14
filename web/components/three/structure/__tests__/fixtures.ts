@@ -100,6 +100,39 @@ export function loadArtifacts(): ArtifactFile[] {
   return out;
 }
 
+/**
+ * Selectors, so the suite survives the campaign directory being reorganised.
+ * Tests pick fixtures by the *property they need to exercise* rather than by
+ * id — the campaigns were renamed and re-generated mid-build once already, and
+ * hardcoded ids turned every geometry test red for reasons unrelated to the
+ * code.
+ */
+
+/** Every CIF candidate across every campaign. */
+export function cifCandidates(): CandidateFixture[] {
+  return listCampaigns()
+    .flatMap((c) => loadCandidates(c))
+    .filter((c) => c.repr_kind === "cif");
+}
+
+/** The artifact payload for a candidate, by artifact id prefix. */
+export function artifactFor(
+  candidateId: string,
+  kind: "relax" | "neb",
+): ArtifactFile | undefined {
+  return loadArtifacts().find((a) => a.name === `a-${kind}-${candidateId}.json`);
+}
+
+/** True when a lattice matrix is in the canonical crystallographic setting. */
+export function isCanonicalOrientation(cell: number[][]): boolean {
+  return (
+    Math.abs(cell[0][1]) < 1e-6 &&
+    Math.abs(cell[0][2]) < 1e-6 &&
+    Math.abs(cell[1][2]) < 1e-6 &&
+    cell[0][0] > 0
+  );
+}
+
 /** Parse the cell block straight out of the CIF text, for cross-checking. */
 export function cifDeclaredCell(text: string) {
   const grab = (tag: string) => {

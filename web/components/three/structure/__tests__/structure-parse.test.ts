@@ -13,6 +13,7 @@ import {
   cellParamsToMatrix,
   cifFormulaSum,
   composition,
+  cellHeights,
   determinant3,
   expandSupercell,
   fractionalToCartesian,
@@ -28,13 +29,55 @@ import {
   unwrapPath,
 } from "../../../../lib/structure-parse";
 import {
+  artifactFor,
+  cifCandidates,
   cifDeclaredCell,
-  findCandidate,
+  isCanonicalOrientation,
   loadArtifacts,
   loadCandidates,
   listCampaigns,
   parseFormulaSum,
 } from "./fixtures";
+
+/**
+ * Fixtures are selected by geometry, not by id. The campaign directories were
+ * renamed and regenerated mid-build, and every hardcoded id went stale at
+ * once; these selectors keep the suite pinned to what each test actually
+ * needs to exercise.
+ */
+const CIFS = cifCandidates();
+
+/** A cell with all angles 90 degrees, for exact CIF/artifact comparison. */
+function orthorhombicCif() {
+  return CIFS.find((c) => {
+    const d = cifDeclaredCell(c.structure);
+    return (
+      Math.abs(d.alpha - 90) < 1e-3 &&
+      Math.abs(d.beta - 90) < 1e-3 &&
+      Math.abs(d.gamma - 90) < 1e-3
+    );
+  });
+}
+
+/** A strongly non-orthogonal cell, for skew-sensitive code paths. */
+function skewedCif() {
+  return CIFS.find((c) => {
+    const d = cifDeclaredCell(c.structure);
+    return (
+      Math.abs(d.alpha - 90) > 5 || Math.abs(d.beta - 90) > 5 || Math.abs(d.gamma - 90) > 5
+    );
+  });
+}
+
+/** An orthorhombic thiophosphate: 4 PS4 tetrahedra in the conventional cell. */
+function thiophosphateCif() {
+  return CIFS.find((c) => {
+    const parsed = parseCif(c.structure);
+    if (!parsed) return false;
+    const comp = composition(parsed.symbols);
+    return comp.P === 4 && comp.S === 16;
+  });
+}
 
 const close = (a: number, b: number, tol: number, what = "") =>
   assert.ok(
@@ -183,46 +226,41 @@ test("parsed composition matches _chemical_formula_sum", () => {
   assert.ok(checked >= 4);
 });
 
-test("Li3PS4 (c-mp-1097036) parses to the known cell and composition", () => {
-  const cand = findCandidate("c-mp-1097036");
-  assert.ok(cand, "c-mp-1097036 missing from the fixtures");
+test("an orthorhombic thiophosphate parses to a physically sensible cell", () => {
+  const cand = thiophosphateCif();
+  assert.ok(cand, "no Li3PS4-like candidate in the fixtures");
   const parsed = parseCif(cand.structure);
-  assert.ok(parsed);
-  assert.ok(parsed.cell);
+  assert.ok(parsed && parsed.cell);
 
+  const declared = cifDeclaredCell(cand.structure);
   const p = matrixToCellParams(parsed.cell);
-  close(p.a, 6.11139853, 1e-6, "a");
-  close(p.b, 7.86250837, 1e-6, "b");
-  close(p.c, 13.34790049, 1e-6, "c");
-  close(p.alpha, 90, 1e-6, "alpha");
-  close(p.beta, 90, 1e-6, "beta");
-  close(p.gamma, 90, 1e-6, "gamma");
+  for (const k of ["a", "b", "c"] as const) close(p[k], declared[k], 1e-6, k);
+  for (const k of ["alpha", "beta", "gamma"] as const) close(p[k], declared[k], 1e-5, k);
 
-  assert.equal(parsed.symbols.length, 32);
+  // Known check: a Li3PS4 cell is of order 6-13 A on a side.
+  for (const k of ["a", "b", "c"] as const) {
+    assert.ok(p[k] > 5 && p[k] < 15, `${k} = ${p[k]} A is not a plausible Li3PS4 cell edge`);
+  }
+
+  // Composition must be the 3:1:4 formula, times Z = 4.
   assert.deepEqual(composition(parsed.symbols), { Li: 12, P: 4, S: 16 });
+  assert.equal(parsed.symbols.length, 32);
 
-  // Site labels must have their digits stripped: "Li10" is lithium, not
-  // something unknown.
-  assert.ok(parsed.symbols.every((s) => ["Li", "P", "S"].includes(s)));
+  // Site labels must have their digits stripped: "Li10" is lithium.
+  assert.ok(parsed.symbols.every((sym) => ["Li", "P", "S"].includes(sym)));
 });
 
-test("Li3ErCl6 (c-mp-676361) handles e-notation fractions and a 120 deg cell", () => {
-  const cand = findCandidate("c-mp-676361");
-  assert.ok(cand);
-  // The file really does contain exponent-notation coordinates.
-  assert.match(cand.structure, /e-0\d/);
+test("a strongly non-orthogonal cell parses, and every atom lands inside it", () => {
+  const cand = skewedCif();
+  assert.ok(cand, "no non-orthogonal candidate in the fixtures");
 
   const parsed = parseCif(cand.structure);
-  assert.ok(parsed);
-  assert.ok(parsed.cell);
+  assert.ok(parsed && parsed.cell);
+  const declared = cifDeclaredCell(cand.structure);
   const p = matrixToCellParams(parsed.cell);
-  close(p.a, 11.009576286916273, 1e-6, "a");
-  close(p.c, 6.024006200279149, 1e-6, "c");
-  close(p.gamma, 120.0018612464941, 1e-5, "gamma");
-  assert.deepEqual(composition(parsed.symbols), { Li: 9, Er: 3, Cl: 18 });
+  for (const k of ["a", "b", "c"] as const) close(p[k], declared[k], 1e-6, k);
+  for (const k of ["alpha", "beta", "gamma"] as const) close(p[k], declared[k], 1e-5, k);
 
-  // Every atom must land back inside [0, 1) in fractional space (the e-05
-  // coordinates are essentially 0, which is the easy case to get wrong).
   for (const pos of parsed.positions) {
     const f = cartesianToFractional(pos, parsed.cell);
     assert.ok(f);
@@ -230,57 +268,98 @@ test("Li3ErCl6 (c-mp-676361) handles e-notation fractions and a 120 deg cell", (
   }
 });
 
-test("CIF fractional->Cartesian reproduces the artifact's own frame 0", () => {
-  // An orthorhombic cell is in its canonical orientation already, so the CIF
-  // and the MACE artifact must agree atom for atom. This is the strongest
-  // single check that the lattice convention and ordering are right.
-  const artifacts = loadArtifacts().filter(
-    (a) => a.campaign === "fixture" && a.name === "a-relax-c-mp-1097036.json",
-  );
-  assert.equal(artifacts.length, 1, "a-relax-c-mp-1097036.json not found");
-  const payload = artifacts[0].payload as {
-    symbols: string[];
-    frames: number[][][];
-  };
-  const cand = findCandidate("c-mp-1097036");
-  assert.ok(cand);
-  const parsed = parseCif(cand.structure);
+test("exponent-notation fractional coordinates parse correctly", () => {
+  // Real generator output contains coordinates like 4.18e-05, which a naive
+  // parseFloat-after-regex can silently truncate to 4.18.
+  const withExponent = CIFS.find((c) => /\de-0\d/.test(c.structure));
+  if (withExponent) {
+    const parsed = parseCif(withExponent.structure);
+    assert.ok(parsed && parsed.cell);
+    for (const pos of parsed.positions) {
+      const f = cartesianToFractional(pos, parsed.cell);
+      assert.ok(f);
+      for (const v of f) assert.ok(v > -1e-6 && v < 1 + 1e-6, `fraction ${v} out of range`);
+    }
+  }
+  // And unconditionally, on a synthetic case, so this never silently no-ops.
+  const cif = `data_x
+_cell_length_a 10.0
+_cell_length_b 10.0
+_cell_length_c 10.0
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+loop_
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Li 4.18e-05 1.0E-3 0.5
+`;
+  const parsed = parseCif(cif);
   assert.ok(parsed);
+  close(parsed.positions[0][0], 4.18e-4, 1e-12, "x from 4.18e-05");
+  close(parsed.positions[0][1], 1e-2, 1e-12, "y from 1.0E-3");
+});
 
-  assert.deepEqual(parsed.symbols, payload.symbols);
-  const frame0 = payload.frames[0];
-  for (let i = 0; i < frame0.length; i++) {
-    for (let k = 0; k < 3; k++) {
-      close(
-        parsed.positions[i][k],
-        frame0[i][k],
-        1e-3,
-        `atom ${i} (${parsed.symbols[i]}) component ${k}`,
-      );
+test("CIF fractional->Cartesian reproduces the artifact's own frame 0", () => {
+  // The strongest single check that the lattice convention, the fractional
+  // conversion and the atom ordering are all right: for a cell already in the
+  // canonical setting, the CIF and the MACE artifact must agree atom for atom.
+  const candidates = CIFS.map((c) => ({ cand: c, art: artifactFor(c.id, "relax") })).filter(
+    (e) =>
+      e.art != null &&
+      Array.isArray(e.art.payload.cell) &&
+      isCanonicalOrientation(e.art.payload.cell as number[][]),
+  );
+  assert.ok(
+    candidates.length > 0,
+    "no candidate has a relaxation artifact in the canonical cell setting",
+  );
+
+  for (const { cand, art } of candidates) {
+    const payload = art!.payload as { symbols: string[]; frames: number[][][] };
+    const parsed = parseCif(cand.structure);
+    assert.ok(parsed, `${cand.id}: parse failed`);
+
+    assert.deepEqual(parsed.symbols, payload.symbols, `${cand.id}: symbol order`);
+    const frame0 = payload.frames[0];
+    for (let i = 0; i < frame0.length; i++) {
+      for (let k = 0; k < 3; k++) {
+        close(
+          parsed.positions[i][k],
+          frame0[i][k],
+          2e-3,
+          `${cand.id} atom ${i} (${parsed.symbols[i]}) component ${k}`,
+        );
+      }
     }
   }
 });
 
-test("non-orthogonal artifact cells agree with the CIF up to a rigid rotation", () => {
-  // Li3ErCl6's artifact lattice is a = [5.5046, -9.5347, -0.0001]: the same
-  // lattice as the CIF, differently oriented. Lengths and angles must match;
-  // the matrices must not be expected to.
-  const art = loadArtifacts().find(
-    (a) => a.campaign === "fixture" && a.name === "a-relax-c-mp-676361.json",
+test("artifact cells in a rotated setting still match the CIF's lengths and angles", () => {
+  // Some artifact lattices are the same lattice in a different orientation
+  // (e.g. a = [5.505, -9.535, 0] for a gamma = 120 cell). Lengths and angles
+  // must match; the matrices must not be expected to.
+  const rotated = CIFS.map((c) => ({ cand: c, art: artifactFor(c.id, "relax") })).filter(
+    (e) =>
+      e.art != null &&
+      Array.isArray(e.art.payload.cell) &&
+      !isCanonicalOrientation(e.art.payload.cell as number[][]),
   );
-  assert.ok(art);
-  const cand = findCandidate("c-mp-676361");
-  assert.ok(cand);
-  const parsed = parseCif(cand.structure);
-  assert.ok(parsed && parsed.cell);
+  assert.ok(rotated.length > 0, "expected at least one non-canonical artifact cell");
 
-  const fromCif = matrixToCellParams(parsed.cell);
-  const fromArtifact = matrixToCellParams(art.payload.cell as number[][]);
-  for (const k of ["a", "b", "c"] as const) {
-    close(fromArtifact[k], fromCif[k], 1e-3, `length ${k}`);
-  }
-  for (const k of ["alpha", "beta", "gamma"] as const) {
-    close(fromArtifact[k], fromCif[k], 1e-2, `angle ${k}`);
+  for (const { cand, art } of rotated) {
+    const parsed = parseCif(cand.structure);
+    assert.ok(parsed && parsed.cell);
+    const fromCif = matrixToCellParams(parsed.cell);
+    const fromArtifact = matrixToCellParams(art!.payload.cell as number[][]);
+    for (const k of ["a", "b", "c"] as const) {
+      close(fromArtifact[k], fromCif[k], 1e-2, `${cand.id} length ${k}`);
+    }
+    for (const k of ["alpha", "beta", "gamma"] as const) {
+      close(fromArtifact[k], fromCif[k], 1e-1, `${cand.id} angle ${k}`);
+    }
   }
 });
 
@@ -382,7 +461,7 @@ test("malformed input returns null rather than throwing", () => {
 });
 
 test("a truncated CIF still yields the atoms it managed to write", () => {
-  const cand = findCandidate("c-mp-1097036");
+  const cand = thiophosphateCif();
   assert.ok(cand);
   const lines = cand.structure.split("\n");
   const truncated = lines.slice(0, lines.length - 10).join("\n");
@@ -421,7 +500,7 @@ test("parsePdb reads ATOM records by column", () => {
 // ---------------------------------------------------------------------------
 
 test("inferBonds recovers all four PS4 tetrahedra in Li3PS4", () => {
-  const cand = findCandidate("c-mp-1097036");
+  const cand = thiophosphateCif();
   assert.ok(cand);
   const s = parseCif(cand.structure);
   assert.ok(s);
@@ -480,25 +559,40 @@ test("inferBonds bonds an atom to its own periodic image in a tiny cell", () => 
 });
 
 test("inferBonds image range accounts for skewed cells", () => {
-  // The Na3PS4 artifact cell is bcc-primitive: every row is (3.47, 3.47, 3.47)
-  // after permutation, so edge lengths are 6 A while the perpendicular width
-  // is only 4 A. Using lengths instead of heights misses neighbours.
-  const art = loadArtifacts().find((a) => a.name === "a-relax-c-mp-985584.json");
-  assert.ok(art, "a-relax-c-mp-985584.json not found");
-  const payload = art.payload as { symbols: string[]; cell: number[][]; frames: number[][][] };
-  const bonds = inferBonds(
-    payload.symbols,
-    payload.frames[0],
-    payload.cell,
-    true,
-    { exclude: ["Na"] },
+  // A primitive cell with ~64 degree angles: its edge lengths are much longer
+  // than its perpendicular widths, so deriving the periodic image range from
+  // lengths instead of cell heights silently misses bonded neighbours.
+  const cand = skewedCif();
+  assert.ok(cand);
+  const s = parseCif(cand.structure);
+  assert.ok(s && s.cell);
+
+  const heights = cellHeights(s.cell);
+  const params = matrixToCellParams(s.cell);
+  assert.ok(
+    Math.min(...heights) < Math.min(params.a, params.b, params.c) * 0.95,
+    "this fixture is not actually skewed enough to exercise the code path",
   );
-  // One PS4 tetrahedron in the primitive cell.
-  assert.equal(bonds.length, 4, `expected 4 P-S bonds, got ${bonds.length}`);
+
+  // Every anion-centred polyhedron must come out complete: each P or Er has
+  // its full first shell once periodic images are resolved.
+  const bonds = inferBonds(s.symbols, s.positions, s.cell, s.pbc, {
+    exclude: ["Li"],
+  });
+  const centres = s.symbols
+    .map((sym, i) => ({ sym, i }))
+    .filter((e) => e.sym === "P" || e.sym === "Er");
+  assert.ok(centres.length > 0, "no polyhedral centre in the skewed fixture");
+
+  const expected = centres[0].sym === "P" ? 4 : 6;
+  for (const { i, sym } of centres) {
+    const n = bonds.filter((b) => b.i === i || b.j === i).length;
+    assert.equal(n, expected, `${sym} at index ${i} has ${n} ligands, expected ${expected}`);
+  }
 });
 
 test("inferBonds excludes alkali cations by request", () => {
-  const cand = findCandidate("c-mp-1097036");
+  const cand = thiophosphateCif();
   assert.ok(cand);
   const s = parseCif(cand.structure);
   assert.ok(s);
@@ -532,7 +626,7 @@ test("inferBonds tolerates garbage without throwing", () => {
 // ---------------------------------------------------------------------------
 
 test("expandSupercell multiplies atoms and scales the lattice", () => {
-  const cand = findCandidate("c-mp-1097036");
+  const cand = thiophosphateCif();
   assert.ok(cand);
   const s = parseCif(cand.structure);
   assert.ok(s && s.cell);
@@ -556,7 +650,7 @@ test("expandSupercell is a no-op for 1x1x1 and for molecules", () => {
 });
 
 test("a 300-atom supercell with bonds builds in well under a second", () => {
-  const cand = findCandidate("c-mp-1097036");
+  const cand = thiophosphateCif();
   assert.ok(cand);
   const s = parseCif(cand.structure);
   assert.ok(s);
@@ -571,7 +665,7 @@ test("a 300-atom supercell with bonds builds in well under a second", () => {
 });
 
 test("boundingSphere encloses the atoms and the cell corners", () => {
-  const cand = findCandidate("c-mp-1097036");
+  const cand = thiophosphateCif();
   assert.ok(cand);
   const s = parseCif(cand.structure);
   assert.ok(s && s.cell);

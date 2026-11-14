@@ -14,7 +14,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseCif } from "../../../../lib/structure-parse";
+import { neighborsOf, parseCif } from "../../../../lib/structure-parse";
 import {
   ELEMENT_COLORS,
   ELEMENT_RADII,
@@ -33,7 +33,19 @@ import {
   normalizeTrajectory,
   normalizeVoidGrid,
 } from "../normalize";
-import { UNPARSEABLE_ARTIFACTS, findCandidate, loadArtifacts } from "./fixtures";
+import { UNPARSEABLE_ARTIFACTS, cifCandidates, loadArtifacts } from "./fixtures";
+
+const CIFS = cifCandidates();
+
+/** The orthorhombic thiophosphate, selected by composition rather than by id. */
+function thiophosphateCif() {
+  return CIFS.find((c) => {
+    const parsed = parseCif(c.structure);
+    if (!parsed) return false;
+    const n = parsed.symbols.filter((s) => s === "P").length;
+    return n === 4 && parsed.symbols.filter((s) => s === "S").length === 16;
+  });
+}
 import { syntheticAdsorptionSites, syntheticVoidGrid } from "./synthetic";
 
 const close = (a: number, b: number, tol: number, what = "") =>
@@ -93,31 +105,24 @@ test("every artifact on disk is at least valid JSON", () => {
   // Surfaced here rather than silently skipped by the loader.
   loadArtifacts();
 
-  // Known bad, reported to the backend owner. Python's json module writes
-  // float('nan') as a bare `NaN`, which is valid Python but not valid JSON,
-  // so NO JavaScript consumer can read this file — it fails in the app before
-  // it ever reaches a component. The superseding fixtures in
-  // `campaigns/fixture-neb/` are clean. This list is pinned rather than
-  // emptied so that a *newly* broken artifact still fails the suite.
-  const KNOWN_BAD = ["fixture/a-neb-c-mp-985583.json"];
-
-  const unexpected = UNPARSEABLE_ARTIFACTS.filter((e) => !KNOWN_BAD.includes(e.file));
+  // An earlier campaign shipped an artifact whose `energies` contained a bare
+  // `NaN` — valid Python, invalid JSON, unreadable by any JS consumer, and it
+  // failed in the app before ever reaching a component. The regenerated
+  // campaign is clean; this guards against it coming back.
   assert.deepEqual(
-    unexpected,
+    UNPARSEABLE_ARTIFACTS,
     [],
-    `unparseable artifact JSON (bare NaN/Infinity?): ${JSON.stringify(unexpected)}`,
+    `unparseable artifact JSON (bare NaN/Infinity?): ${JSON.stringify(UNPARSEABLE_ARTIFACTS)}`,
   );
-  // And the known-bad file must still be the only one, so this test starts
-  // passing for the right reason once the backend writes finite energies.
-  assert.ok(UNPARSEABLE_ARTIFACTS.length <= KNOWN_BAD.length);
 });
 
 test("the fixture artifact set is present", () => {
   assert.ok(ARTIFACTS.length >= 8, `only found ${ARTIFACTS.length} artifacts`);
   assert.ok(
-    ARTIFACTS.some((a) => a.campaign === "fixture-neb"),
-    "the physically-correct NEB fixtures are missing",
+    ARTIFACTS.some((a) => typeof a.payload.mobile_index === "number"),
+    "no NEB artifacts found in any campaign",
   );
+  assert.ok(CIFS.length > 0, "no CIF candidates found in any campaign");
 });
 
 test("TrajectoryView accepts every real relaxation and NEB payload", () => {
@@ -169,9 +174,7 @@ test("the physically-correct NEB fixtures have sane barriers and clearances", ()
   // Guards the hero shot: if a regenerated fixture ever puts the mobile ion
   // on top of another atom again, this fails rather than shipping a video of
   // two lithiums fusing.
-  const nebs = ARTIFACTS.filter(
-    (a) => a.campaign === "fixture-neb" && typeof a.payload.mobile_index === "number",
-  );
+  const nebs = ARTIFACTS.filter((a) => typeof a.payload.mobile_index === "number");
   assert.ok(nebs.length >= 3, `expected >=3 NEB fixtures, found ${nebs.length}`);
   for (const art of nebs) {
     const p = art.payload as {
@@ -233,7 +236,7 @@ test("normalizeTrajectory rejects malformed payloads", () => {
 });
 
 test("a truncated real artifact degrades rather than exploding", () => {
-  const art = ARTIFACTS.find((a) => a.campaign === "fixture-neb" && a.name.startsWith("a-neb"));
+  const art = ARTIFACTS.find((a) => typeof a.payload.mobile_index === "number");
   assert.ok(art);
   const payload = art.payload as {
     symbols: string[];
@@ -424,23 +427,27 @@ test("convexHullFaces: degenerate input yields no faces", () => {
 });
 
 test("convexHullFaces builds a PS4 tetrahedron from real Li3PS4 coordinates", () => {
-  const cand = findCandidate("c-mp-1097036");
+  const cand = thiophosphateCif();
   assert.ok(cand);
   const s = parseCif(cand.structure);
   assert.ok(s);
-  // The four S neighbours of the first P, found by brute force on the real
-  // coordinates (no periodic image needed for this particular site).
+
+  // Neighbours must be found with periodic images resolved — in this cell one
+  // of the four S of the first P is across a cell boundary, and a plain
+  // in-cell search finds a 4.15 A "neighbour" instead of the real 2.1 A one.
   const pIndex = s.symbols.indexOf("P");
-  const neighbours = s.positions
-    .map((p, i) => ({ p, i, d: Math.hypot(...p.map((v, k) => v - s.positions[pIndex][k])) }))
-    .filter((e) => s.symbols[e.i] === "S")
-    .sort((a, b) => a.d - b.d)
-    .slice(0, 4);
-  // A PS4 tetrahedron: P-S about 2.05-2.10 A.
-  for (const n of neighbours) {
-    assert.ok(n.d > 1.9 && n.d < 2.3, `P-S distance ${n.d.toFixed(3)} A is not tetrahedral`);
+  const shell = neighborsOf(pIndex, s.symbols, s.positions, s.cell, s.pbc, {
+    maxNeighbors: 4,
+  }).filter((n) => s.symbols[n.index] === "S");
+  assert.equal(shell.length, 4, "a PS4 unit has four S neighbours");
+
+  for (const n of shell) {
+    assert.ok(
+      n.distance > 1.9 && n.distance < 2.3,
+      `P-S distance ${n.distance.toFixed(3)} A is not tetrahedral`,
+    );
   }
-  assert.equal(convexHullFaces(neighbours.map((n) => n.p)).length, 4);
+  assert.equal(convexHullFaces(shell.map((n) => n.position as number[])).length, 4);
 });
 
 // ---------------------------------------------------------------------------
@@ -602,7 +609,7 @@ test("a surface that reaches the cell boundary is open only there", () => {
 // ---------------------------------------------------------------------------
 
 test("the synthetic void grid is a valid void_grid payload with real pores", () => {
-  const cand = findCandidate("c-mp-1097036");
+  const cand = thiophosphateCif();
   assert.ok(cand);
   const s = parseCif(cand.structure);
   assert.ok(s);
@@ -621,7 +628,7 @@ test("the synthetic void grid is a valid void_grid payload with real pores", () 
 });
 
 test("the synthetic adsorption payload is accepted and guests do not overlap", () => {
-  const cand = findCandidate("c-mp-676361");
+  const cand = CIFS.find((c) => parseCif(c.structure)?.symbols.includes("Cl")) ?? CIFS[0];
   assert.ok(cand);
   const s = parseCif(cand.structure);
   assert.ok(s);

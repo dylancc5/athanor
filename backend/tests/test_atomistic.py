@@ -259,6 +259,35 @@ def test_scorer_satisfies_the_protocol():
         assert prop in scorer.properties
 
 
+def test_the_objective_vocabulary_excludes_retrieval_only_properties():
+    """`properties` feeds the intake agent's objective vocabulary, and
+    `pareto.rank()` drops any candidate missing an objective. So a property that
+    only a retrieved candidate can have must not appear there, or every invented
+    candidate silently vanishes from the frontier.
+
+    Both excluded keys are still measured — see `extra_properties`.
+    """
+    scorer = AtomisticScorer()
+    assert "band_gap" not in scorer.properties
+    assert "energy_above_hull_dft" not in scorer.properties
+    assert set(scorer.extra_properties) == {"band_gap", "energy_above_hull_dft"}
+    # What remains must be computable for a candidate with no database record.
+    assert "migration_barrier" in scorer.properties
+    assert "energy_above_hull" in scorer.properties
+    assert not set(scorer.properties) & set(scorer.extra_properties)
+
+
+async def test_every_objective_property_is_measurable_for_an_invented_candidate(worker, mp_ok):
+    """The guarantee behind the vocabulary split, checked end to end."""
+    candidate = make_candidate(
+        source="perturbation", parent_id="c-0", external_id=None, database=None
+    )
+    result = await AtomisticScorer().score([candidate], SPEC)
+    measured = {m.property for m in result.measurements}
+    missing = set(AtomisticScorer().properties) - measured
+    assert not missing, f"invented candidate is missing objective-eligible {missing}"
+
+
 async def test_full_solid_electrolyte_scoring(worker, mp_ok):
     result = await AtomisticScorer().score([make_candidate()], SPEC)
     by_prop = {m.property: m for m in result.measurements}

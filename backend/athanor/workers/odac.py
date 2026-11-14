@@ -92,6 +92,30 @@ GemNet-OC-S2EF-ODAC does not load in this environment at all: fairchem 1.10
 looks for `configs/s2ef/all/gemnet/scaling_factors/gemnet-oc.pt`, which the
 wheel does not ship, and raises `ValueError: Scale file ... does not exist`.
 EquiformerV2 is used instead and is faster anyway.
+
+-------------------------------------------------------------------------------
+Measured cost (CPU, 18 cores, OMP_NUM_THREADS=8)
+-------------------------------------------------------------------------------
+Checkpoint load: 0.8 s, once per worker process.
+
+Warm single forward pass, median of 3 on real MOFs from the ODAC archive:
+
+      98 atoms (BAXFUD)   3.42 s
+     200 atoms (DITYOW)   4.51 s
+     300 atoms (IYEHAX)   5.82 s
+
+Every relaxation step costs one full forward pass, so the budget for one
+candidate at the shipped defaults (4 sites x 4 orientations screened by single
+point, then the best 3 relaxed for up to 80 LBFGS steps) is
+
+     16 + 3 x (steps + 1)  forward passes,  i.e. 48-244 in practice
+
+Measured end-to-end on 20-58 atom frameworks: median 62 s per candidate, range
+35-143 s. Extrapolating the per-pass cost, a 200-atom framework runs about
+15 minutes and a 300-atom one about 19 minutes at these defaults. Scale
+`n_sites`, `n_orientations` and `relax_steps` to the budget — but note that
+cutting the placement search is exactly what drives the dominant error (see
+the accuracy note above), so it buys speed at the cost of the number itself.
 """
 
 from __future__ import annotations

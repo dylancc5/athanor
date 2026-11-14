@@ -350,6 +350,71 @@ async def test_regeneration_energy_is_a_labelled_proxy(monkeypatch, mof_candidat
         assert required in note, f"proxy note must explain it omits {required}"
 
 
+async def test_adsorption_note_discloses_weak_ranking_and_bimodal_error(
+    monkeypatch, mof_candidate
+):
+    """The measured rank correlation is poor; the note must not hide it.
+
+    A screening campaign's whole purpose is to order candidates, so a scorer
+    whose ordering was validated at Spearman 0.19 has to say so where the
+    number is read, not only in a report.
+    """
+    async def worker(name, request, **kwargs):
+        return dict(FAKE_ADSORPTION)
+
+    monkeypatch.setattr(molecular, "run_worker", worker)
+    result = await Odac23Scorer(grid_spacing=0.9).score(
+        [mof_candidate], spec_for("mof_water", "water_adsorption_energy")
+    )
+    note = next(
+        m.note for m in result.measurements if m.property == "water_adsorption_energy"
+    )
+    assert "RANKING IS UNRELIABLE" in note
+    assert f"{molecular.ODAC_SPEARMAN:.2f}" in note
+    assert "BIMODAL" in note
+    # The regeneration proxy inherits the problem and must not claim ranking.
+    regen = next(m for m in result.measurements if m.property == "regeneration_energy")
+    assert "not a reliable way to rank" in regen.note.lower()
+
+
+async def test_h_free_framework_is_flagged_out_of_distribution(monkeypatch):
+    """The seed frameworks ship with no hydrogen; that changes the water site."""
+    from ase import Atoms
+
+    from athanor.structure import atoms_to_cif
+
+    # Al/O/C framework with no H at all, in a roomy cell.
+    skeleton = Atoms(
+        "AlO4C4",
+        positions=[
+            [0, 0, 0], [2.0, 0, 0], [0, 2.0, 0], [0, 0, 2.0], [-2.0, 0, 0],
+            [4.0, 0, 0], [0, 4.0, 0], [0, 0, 4.0], [-4.0, 0, 0],
+        ],
+        cell=[14.0, 14.0, 14.0],
+        pbc=True,
+    )
+    cand = Candidate(
+        id="c-noh",
+        name="H-free framework",
+        structure=atoms_to_cif(skeleton),
+        repr_kind="cif",
+        domain="mof_water",
+        provenance=Provenance(source="retrieval", database="odac_promising_mof", external_id="X"),
+    )
+
+    async def worker(name, request, **kwargs):
+        return dict(FAKE_ADSORPTION)
+
+    monkeypatch.setattr(molecular, "run_worker", worker)
+    result = await Odac23Scorer(grid_spacing=1.0).score(
+        [cand], spec_for("mof_water", "water_adsorption_energy")
+    )
+    ads = next(m for m in result.measurements if m.property == "water_adsorption_energy")
+    assert ads.ood_flag is True
+    assert "no hydrogen" in ads.note.lower()
+    assert ads.confidence < 0.5
+
+
 async def test_no_scorer_ever_emits_water_uptake(monkeypatch, mof_candidate):
     async def worker(name, request, **kwargs):
         return dict(FAKE_ADSORPTION)
