@@ -2,6 +2,8 @@
 
 **An agentic platform that runs multi-round scientific research campaigns — and tries to refute its own hypotheses.**
 
+**[Try the live demo →](https://athanor-dylancc5-7738.vercel.app/)** · replay mode, no sign-in, no backend required.
+
 You give it a research goal in a sentence. It writes a falsifiable hypothesis, generates candidate materials, tests them against physics-based atomistic models, and then does the thing that actually makes research work: it tries to kill its own idea. When a hypothesis is refuted, the refutation is written into a lab notebook as a reusable heuristic, and the next round is smarter for it. The campaign ends with a synthesis route and a validation protocol a real lab could run on Monday.
 
 Most "AI for science" demos generate plausible-looking molecules. ATHANOR is built around the opposite instinct: **a result you can't falsify isn't a result.**
