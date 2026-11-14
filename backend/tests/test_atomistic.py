@@ -255,7 +255,7 @@ def test_scorer_satisfies_the_protocol():
     assert isinstance(scorer, Scorer)
     assert scorer.name == "mace-mp-0"
     assert scorer.domains == ("solid_electrolyte", "mof_water")
-    for prop in ("energy_per_atom", "migration_barrier", "energy_above_hull", "band_gap"):
+    for prop in ("energy_per_atom", "migration_barrier", "energy_above_hull"):
         assert prop in scorer.properties
 
 
@@ -958,7 +958,27 @@ def test_registry_skips_a_broken_scorer(monkeypatch, caplog):
 
 def test_scorers_for_domain_filters():
     assert "mace-mp-0" in [s.name for s in registry.scorers_for_domain("solid_electrolyte")]
+    assert "mace-mp-0" in [s.name for s in registry.scorers_for_domain("mof_water")]
     assert "mace-mp-0" not in [s.name for s in registry.scorers_for_domain("drug_stability")]
+
+
+def test_a_framework_domain_is_not_offered_solid_electrolyte_objectives():
+    """`property_vocabulary` unions `properties` per domain without narrowing,
+    so a scorer serving MOFs must not advertise the ionic-conductor properties
+    it declines to compute for them — an objective nothing measures empties the
+    frontier for that domain."""
+    mof = [s for s in registry.scorers_for_domain("mof_water") if s.name == "mace-mp-0"]
+    assert mof, "MACE should still serve mof_water for relaxation energies"
+    for prop in AtomisticScorer.SOLID_ONLY:
+        assert prop not in mof[0].properties
+    # ...while the solid-electrolyte instance keeps them.
+    solid = next(
+        s for s in registry.scorers_for_domain("solid_electrolyte") if s.name == "mace-mp-0"
+    )
+    for prop in AtomisticScorer.SOLID_ONLY:
+        assert prop in solid.properties
+    # Relaxation energies are genuinely computable in both.
+    assert "energy_per_atom" in mof[0].properties
 
 
 # --------------------------------------------------------------------------

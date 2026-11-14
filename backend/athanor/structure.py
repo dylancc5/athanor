@@ -64,7 +64,9 @@ def parse_structure(text: str, repr_kind: str) -> Atoms:
     if fmt == "extxyz":
         try:
             return ase_read(io.StringIO(text), format="extxyz")
-        except Exception:
+        except Exception:  # noqa: BLE001 — extxyz is a superset of xyz; any
+            # parse failure is worth retrying as plain xyz, and the retry
+            # raises on its own if the text is genuinely not a structure.
             return ase_read(io.StringIO(text), format="xyz")
     return ase_read(io.StringIO(text), format=fmt)
 
@@ -132,8 +134,8 @@ def composition(atoms: Atoms) -> dict[str, int]:
 
 
 def reduced_formula(atoms: Atoms) -> str:
-    from math import gcd
     from functools import reduce
+    from math import gcd
 
     comp = composition(atoms)
     if not comp:

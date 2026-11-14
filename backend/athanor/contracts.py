@@ -8,7 +8,7 @@ from a JSONL file). `web/lib/contracts.ts` is generated from this module by
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Protocol, Union, runtime_checkable
+from typing import Annotated, Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -297,26 +297,7 @@ class CampaignError(Model):
 
 
 EventBody = Annotated[
-    Union[
-        CampaignStarted,
-        SpecCreated,
-        RoundStarted,
-        HypothesisProposed,
-        CandidatesGenerated,
-        SkepticReviewed,
-        ScoringStarted,
-        MeasurementRecorded,
-        ArtifactCreated,
-        EmbeddingUpdated,
-        ParetoUpdated,
-        AnalystVerdict,
-        NotebookDelta,
-        ControllerDecision,
-        LedgerUpdated,
-        ProposalCreated,
-        CampaignCompleted,
-        CampaignError,
-    ],
+    CampaignStarted | SpecCreated | RoundStarted | HypothesisProposed | CandidatesGenerated | SkepticReviewed | ScoringStarted | MeasurementRecorded | ArtifactCreated | EmbeddingUpdated | ParetoUpdated | AnalystVerdict | NotebookDelta | ControllerDecision | LedgerUpdated | ProposalCreated | CampaignCompleted | CampaignError,
     Field(discriminator="type"),
 ]
 
@@ -357,7 +338,7 @@ class Scorer(Protocol):
 @runtime_checkable
 class Generator(Protocol):
     async def propose(
-        self, spec: Spec, hypothesis: Hypothesis, notebook: "NotebookView"
+        self, spec: Spec, hypothesis: Hypothesis, notebook: NotebookView
     ) -> list[Candidate]: ...
 
 

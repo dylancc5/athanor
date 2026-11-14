@@ -19,9 +19,25 @@ log = logging.getLogger(__name__)
 
 
 def _atomistic() -> Any:
+    """MACE-MP-0 for periodic ionic conductors: the full property set."""
     from .atomistic import AtomisticScorer
 
-    return AtomisticScorer()
+    return AtomisticScorer(domains=("solid_electrolyte",))
+
+
+def _atomistic_framework() -> Any:
+    """The same model for frameworks, advertising only what applies to them.
+
+    Separate instance rather than one scorer spanning both domains, because
+    `router.property_vocabulary` unions `scorer.properties` per domain without
+    narrowing. A single instance claiming both domains would offer
+    `migration_barrier` and `energy_above_hull` as MOF objectives, and since
+    neither is computable for an open framework, `pareto.rank()` would then drop
+    every MOF candidate — the same failure the MACE hull exists to prevent.
+    """
+    from .atomistic import AtomisticScorer
+
+    return AtomisticScorer(domains=("mof_water",))
 
 
 def _gfn2_xtb() -> Any:
@@ -51,6 +67,7 @@ def _retrieval() -> Any:
 # Add an entry per scorer. Order is the order they are offered to the loop.
 BUILDERS: list[tuple[str, Callable[[], Any]]] = [
     ("atomistic", _atomistic),
+    ("atomistic-framework", _atomistic_framework),
     ("gfn2-xtb", _gfn2_xtb),
     ("odac23", _odac23),
     ("rdkit", _rdkit),

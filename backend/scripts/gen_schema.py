@@ -13,8 +13,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pydantic import TypeAdapter
-
 from athanor import contracts as C
 
 OUT = Path(__file__).resolve().parents[2] / "web" / "lib" / "contracts.schema.json"

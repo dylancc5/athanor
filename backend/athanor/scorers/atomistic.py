@@ -461,6 +461,15 @@ class AtomisticScorer:
     # measurements table — just not in the objective vocabulary.
     extra_properties: tuple[str, ...] = ("energy_above_hull_dft", "band_gap")
 
+    #: Properties that only apply to a periodic ionic conductor. A MOF gets
+    #: neither (no mobile-ion hop; a dense-phase hull distance is meaningless
+    #: for an open framework), so a scorer serving `mof_water` must not
+    #: advertise them — `router.property_vocabulary` unions `properties`
+    #: per domain with no narrowing, and an objective nothing measures empties
+    #: the frontier. `registry.all_scorers()` therefore registers one instance
+    #: per domain with the right tuple; see `for_domain`.
+    SOLID_ONLY: tuple[str, ...] = ("migration_barrier", "energy_above_hull")
+
     def __init__(
         self,
         *,
@@ -480,7 +489,16 @@ class AtomisticScorer:
         concurrency: int = 1,
         use_mp: bool = True,
         use_mace_hull: bool = True,
+        domains: tuple[Domain, ...] | None = None,
     ) -> None:
+        if domains is not None:
+            # Instance-level override, so one domain's objective vocabulary
+            # cannot advertise another domain's properties.
+            self.domains = tuple(domains)
+            if "solid_electrolyte" not in self.domains:
+                self.properties = tuple(
+                    p for p in type(self).properties if p not in self.SOLID_ONLY
+                )
         self.relax_fmax = relax_fmax
         self.relax_steps = relax_steps
         self.neb_images = neb_images

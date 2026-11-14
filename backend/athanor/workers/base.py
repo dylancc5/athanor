@@ -52,7 +52,7 @@ class WorkerSpec:
     module: str
 
     @classmethod
-    def for_name(cls, name: str) -> "WorkerSpec":
+    def for_name(cls, name: str) -> WorkerSpec:
         try:
             env = WORKER_ENVS[name]
         except KeyError:
@@ -106,7 +106,7 @@ async def run_worker(
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(payload), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         raise WorkerError(name, f"timed out after {timeout:.0f}s") from None

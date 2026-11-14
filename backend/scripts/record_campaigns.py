@@ -28,8 +28,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from athanor.eventlog import EventLog, read_events  # noqa: E402
-from athanor.loop.campaign import Campaign, CampaignConfig  # noqa: E402
+from athanor.eventlog import EventLog, read_events
+from athanor.loop.campaign import Campaign, CampaignConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 CAMPAIGNS = ROOT / "campaigns"
