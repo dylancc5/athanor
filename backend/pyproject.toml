@@ -1,0 +1,37 @@
+[project]
+name = "athanor"
+version = "0.1.0"
+description = "ATHANOR — autonomous research campaign platform"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sse-starlette>=2.1",
+    "pydantic>=2.8",
+    "anthropic>=0.40",
+    "python-dotenv>=1.0",
+    "httpx>=0.27",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "ase>=3.23",
+    "pymatgen>=2024.8",
+    "mp-api>=0.41",
+    "mace-torch>=0.3.10",
+    "rdkit>=2024.3",
+    "tblite>=0.4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["athanor"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
