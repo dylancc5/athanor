@@ -289,6 +289,26 @@ def test_default_sources_are_all_usable():
         assert callable(source.fetch)
 
 
+def test_water_harvesters_are_not_labelled_from_filenames():
+    """Regression guard for a real mistake.
+
+    These entries were once labelled "Al-fumarate (A520)" because the archive
+    filenames contain `alf`. Checking the composition showed 8 C per Al with 4
+    carboxylate O — an aromatic dicarboxylate, not fumarate, which has 4 C per
+    Al. Names in database fields and filenames are not evidence.
+    """
+    for entry in R.WATER_HARVESTERS:
+        assert "formula" in entry, "every entry must record its measured formula"
+        assert entry["refcode"] in entry["name"], (
+            "the label must carry the refcode, so it can always be traced back"
+        )
+    blob = json.dumps(R.WATER_HARVESTERS).lower()
+    for trade_name in ("a520", "basolite", "fumarate"):
+        assert trade_name not in blob, (
+            f"{trade_name!r} is a name claim that the composition does not support"
+        )
+
+
 def test_water_harvesters_do_not_claim_mof_303():
     """MOF-303 is in no open database; an id for it would be fabricated."""
     blob = json.dumps(R.WATER_HARVESTERS).lower()

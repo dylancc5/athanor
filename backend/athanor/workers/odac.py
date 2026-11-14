@@ -8,8 +8,8 @@ Ops:
   ping       -> {"model", "n_params"}
   energy     -> {"atoms"}                   -> {"energy_ev", "max_force", "n_atoms"}
   adsorption -> {"host", "guest"?, "n_sites"?, "relax_steps"?, "fmax"?}
-                -> {"adsorption_energy_ev", "host_energy_ev", "guest_energy_ev",
-                    "host_guest_energy_ev", "sites": [...], "best_site_index",
+                -> {"adsorption_energy_ev", "host_energy_ev" (diagnostic only),
+                    "sites": [...], "best_site_index", "best_orientation_index",
                     "adsorption_sites": {...}, "trajectory": {...}}
   relax_guest-> one site, keeping every frame
 
@@ -148,7 +148,7 @@ def get_calculator():
             relaxation step unseeded.
             """
 
-            def calculate(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            def calculate(self, *args, **kwargs):
                 torch.manual_seed(FORWARD_SEED)
                 return super().calculate(*args, **kwargs)
 

@@ -61,9 +61,20 @@ EV_PER_KJ_MOL = 96.48533212
 # Caveat that belongs with them: those reference values are ODAC23 *training*
 # data, so this is an in-distribution check, not an out-of-sample test.
 ODAC_VALIDATION_N = 8
-ODAC_MAE_EV = 0.22
-ODAC_MEAN_SIGNED_ERROR_EV = 0.19
-ODAC_SPEARMAN = 0.43
+ODAC_MAE_EV = 0.241
+ODAC_MEAN_SIGNED_ERROR_EV = 0.206
+ODAC_MAX_ABS_ERROR_EV = 0.523
+#: Rank correlation against the reference energies. It is LOW, and that is the
+#: single most important limitation of this scorer: the magnitudes land in the
+#: right range but the ordering of frameworks does not reliably reproduce the
+#: reference ordering.
+ODAC_SPEARMAN = 0.19
+#: The error is bimodal, which a single MAE hides. On 4 of the 8 frameworks the
+#: site search found a site matching the reference and agreement was within
+#: 0.015 eV; on 3 it missed and was wrong by ~0.5 eV in the under-binding
+#: direction. So the question is not "how accurate is the energy model" but
+#: "did the placement search find the right site".
+ODAC_CLOSE_AGREEMENT_EV = 0.015
 #: Resolution limit of GFN2-xTB polymorph energy differences, in kJ/mol. Set
 #: from the measured inversions on real polymorph pairs; see Gfn2XtbScorer.
 GFN2_POLYMORPH_RESOLUTION_KJ_MOL = 3.0
@@ -191,8 +202,15 @@ class Gfn2XtbScorer:
                     unit="eV",
                     source=self.name,
                     method=r.get("method"),
-                    confidence=0.6 if r.get("converged") else 0.4,
-                    ood_flag=False,
+                    # Deliberately modest: the absolute value is 15-25% off
+                    # experimental sublimation enthalpies, and a zwitterionic
+                    # gas reference degrades it further.
+                    confidence=(
+                        0.45
+                        if r.get("converged") and not r.get("gas_reference_zwitterionic")
+                        else 0.25
+                    ),
+                    ood_flag=bool(r.get("gas_reference_zwitterionic")),
                     is_proxy=False,
                     note=(
                         f"lattice energy per molecule, Z={r.get('z_total')} in a "
@@ -556,19 +574,30 @@ class Odac23Scorer:
                 note=(
                     "Binding energy of ONE water molecule at 0 K, from the ODAC23 "
                     "EquiformerV2 checkpoint. Negative is favourable. "
-                    "ACCURACY: against 8 published DFT reference energies for these "
-                    "same frameworks this pipeline UNDER-BINDS by a mean of "
-                    f"{ODAC_MEAN_SIGNED_ERROR_EV:+.2f} eV "
-                    f"(MAE {ODAC_MAE_EV:.2f} eV, Spearman "
-                    f"{ODAC_SPEARMAN:.2f} over 8 frameworks). That is a TENDENCY, "
-                    "not a bound: individual values do overshoot and bind more "
-                    "strongly than the reference. The gap is site sampling, not the "
-                    "energy model — it screens a few deterministic placements "
-                    f"({r.get('n_placements_screened')} here, {r.get('n_relaxed')} "
-                    "relaxed) against a rigid framework, where the references come "
-                    "from an exhaustive search with full DFT relaxation. Note also "
-                    "that those references are ODAC23 training data, so the "
-                    "comparison is in-distribution and flatters the model. "
+                    "ACCURACY, measured against "
+                    f"{ODAC_VALIDATION_N} published DFT reference energies for "
+                    f"these same frameworks: MAE {ODAC_MAE_EV:.2f} eV, mean signed "
+                    f"{ODAC_MEAN_SIGNED_ERROR_EV:+.2f} eV (it tends to UNDER-bind), "
+                    f"worst case {ODAC_MAX_ABS_ERROR_EV:.2f} eV. That is a tendency "
+                    "and not a bound — 2 of 8 overshot and bound more strongly than "
+                    "the reference.\n"
+                    "The error is BIMODAL, which the MAE hides: on 4 of 8 "
+                    "frameworks the placement search found a site matching the "
+                    f"reference and agreed to within {ODAC_CLOSE_AGREEMENT_EV:.3f} "
+                    "eV, while on 3 it missed the true strong-binding site and was "
+                    "wrong by about 0.5 eV. The limiting factor is therefore the "
+                    "site search, not the energy model: this screens a few "
+                    f"deterministic placements ({r.get('n_placements_screened')} "
+                    f"here, {r.get('n_relaxed')} relaxed) against a rigid framework, "
+                    "where the references come from an exhaustive search with full "
+                    "DFT relaxation.\n"
+                    "RANKING IS UNRELIABLE: Spearman rank correlation against the "
+                    f"reference energies is only {ODAC_SPEARMAN:.2f} over "
+                    f"{ODAC_VALIDATION_N} frameworks. Do not treat an ordering of "
+                    "frameworks by this number as established without checking the "
+                    "per-site detail. Note also that those references are ODAC23 "
+                    "training data, so even this comparison is in-distribution and "
+                    "flatters the model. "
                     "This is NOT water uptake: uptake is a loading isotherm at a "
                     "given temperature and humidity, which cannot be computed from "
                     "a single-molecule binding energy."
