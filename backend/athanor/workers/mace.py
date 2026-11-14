@@ -5,11 +5,15 @@ see `athanor/workers/base.py`.
 
 Request: {"op": "<name>", ...op-specific fields}
 Ops:
-  ping    -> {"model": str}
-  energy  -> {"atoms": AtomsDict}                      -> {"energy_ev", "energy_per_atom", "max_force"}
-  relax   -> {"atoms": AtomsDict, "fmax", "steps", "relax_cell"}
+  ping     -> {"model": str}
+  elements -> {"atomic_numbers": [int], "n_elements": int}   (the model's training coverage)
+  energy   -> {"atoms": AtomsDict}                     -> {"energy_ev", "energy_per_atom", "max_force"}
+  relax    -> {"atoms": AtomsDict, "fmax", "steps", "relax_cell"}
              -> {"energy_ev", "energy_per_atom", "max_force", "steps_taken", "converged",
-                 "initial_energy_ev", "atoms", "trajectory": {...}}
+                 "initial_energy_ev", "relaxation_drop_ev", "max_displacement_A",
+                 "rms_displacement_A", "atoms", "trajectory": {...}}
+  path     -> straight-line interpolation (proxy upper bound)
+  neb      -> vacancy-mediated CI-NEB migration barrier
 
 Determinism: MACE-MP-0 `medium` is deterministic on CPU at float32, and the
 optimizers below are deterministic given the same starting coordinates.
@@ -44,6 +48,18 @@ def op_ping(_: dict[str, Any]) -> dict[str, Any]:
     return {"model": f"mace-mp-0-{MODEL}"}
 
 
+def op_elements(_: dict[str, Any]) -> dict[str, Any]:
+    """The atomic numbers the loaded model actually has embeddings for.
+
+    `athanor.ood` hard-codes this list (89 entries) so the server can reject an
+    unsupported element without starting a worker; this op is how that list was
+    obtained and how it can be re-checked if the model is ever swapped.
+    """
+    calc = get_calculator()
+    numbers = sorted(int(z) for z in calc.models[0].atomic_numbers.tolist())
+    return {"model": f"mace-mp-0-{MODEL}", "atomic_numbers": numbers, "n_elements": len(numbers)}
+
+
 def op_energy(req: dict[str, Any]) -> dict[str, Any]:
     atoms = dict_to_atoms(req["atoms"])
     atoms.calc = get_calculator()
@@ -55,6 +71,29 @@ def op_energy(req: dict[str, Any]) -> dict[str, Any]:
         "max_force": f,
         "n_atoms": len(atoms),
     }
+
+
+def _displacements(atoms, initial_positions, initial_cell) -> tuple[float, float]:
+    """How far each atom moved during relaxation, in Angstrom.
+
+    Measured in fractional coordinates and wrapped into [-0.5, 0.5) before
+    converting back, so (a) an atom that crossed a periodic boundary is not
+    recorded as having moved a whole cell, and (b) the number is still right
+    when the cell itself relaxed. Non-periodic inputs use raw Cartesian deltas.
+    """
+    final_positions = np.asarray(atoms.get_positions(), dtype=float)
+    if np.any(atoms.pbc) and abs(np.linalg.det(initial_cell)) > 1e-8:
+        final_cell = np.asarray(atoms.cell.array, dtype=float)
+        frac0 = np.linalg.solve(initial_cell.T, initial_positions.T).T
+        frac1 = np.linalg.solve(final_cell.T, final_positions.T).T
+        dfrac = (frac1 - frac0 + 0.5) % 1.0 - 0.5
+        delta = dfrac @ final_cell
+    else:
+        delta = final_positions - initial_positions
+    norms = np.linalg.norm(delta, axis=1)
+    if norms.size == 0:
+        return 0.0, 0.0
+    return float(norms.max()), float(np.sqrt(np.mean(norms**2)))
 
 
 def op_relax(req: dict[str, Any]) -> dict[str, Any]:
@@ -69,6 +108,8 @@ def op_relax(req: dict[str, Any]) -> dict[str, Any]:
     relax_cell = bool(req.get("relax_cell", False)) and bool(np.any(atoms.pbc))
 
     initial_energy = float(atoms.get_potential_energy())
+    initial_positions = np.asarray(atoms.get_positions(), dtype=float).copy()
+    initial_cell = np.asarray(atoms.cell.array, dtype=float).copy()
     frames: list[list[list[float]]] = []
     energies: list[float] = []
     cells: list[list[list[float]]] = []
@@ -87,6 +128,7 @@ def op_relax(req: dict[str, Any]) -> dict[str, Any]:
         record()
 
     final_energy = float(atoms.get_potential_energy())
+    max_disp, rms_disp = _displacements(atoms, initial_positions, initial_cell)
     trajectory = {
         "symbols": [str(s) for s in atoms.get_chemical_symbols()],
         "cell": np.asarray(atoms.cell.array, dtype=float).round(4).tolist()
@@ -102,6 +144,9 @@ def op_relax(req: dict[str, Any]) -> dict[str, Any]:
         "energy_per_atom": final_energy / len(atoms),
         "initial_energy_ev": initial_energy,
         "relaxation_drop_ev": initial_energy - final_energy,
+        "max_displacement_A": max_disp,
+        "rms_displacement_A": rms_disp,
+        "relax_cell": relax_cell,
         "max_force": float(np.abs(atoms.get_forces()).max()),
         "steps_taken": len(frames),
         "converged": converged,
@@ -198,9 +243,11 @@ def op_neb(req: dict[str, Any]) -> dict[str, Any]:
     min_cell = float(req.get("min_cell_length", 8.0))
 
     # Expand so the migrating ion does not interact with its own periodic image.
+    reps: tuple[int, ...] = (1, 1, 1)
     if np.any(atoms.pbc):
         reps = tuple(
-            max(1, int(np.ceil(min_cell / max(l, 1e-6)))) for l in atoms.cell.lengths()
+            max(1, int(np.ceil(min_cell / max(length, 1e-6))))
+            for length in atoms.cell.lengths()
         )
         if reps != (1, 1, 1):
             atoms = atoms * reps
@@ -277,6 +324,9 @@ def op_neb(req: dict[str, Any]) -> dict[str, Any]:
         "energies": energies,
         "converged": converged,
         "n_atoms": len(initial),
+        "n_images": n_images,
+        "steps": steps,
+        "supercell": list(reps),
         "species": species,
         "method": (
             f"CI-NEB, {n_images} images, vacancy-mediated {species} hop, "
@@ -293,7 +343,10 @@ def op_neb(req: dict[str, Any]) -> dict[str, Any]:
             ],
             "energies": energies,
             "mobile_index": moved_index,
-            "barrier_ev": float(max(forward, 0.0)),
+            # The same number the Measurement carries. These were out of step
+            # before (forward-only here, rate-limiting above), which made the
+            # 3D path viewer label a barrier that no measurement reported.
+            "barrier_ev": float(max(limiting, 0.0)),
         },
     }
 
