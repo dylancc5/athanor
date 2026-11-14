@@ -1,114 +1,105 @@
 # ATHANOR — Autonomous Research Campaign Platform
+
 **One line:** An agentic platform that runs multi-round scientific research campaigns —
-proposes falsifiable hypotheses, tests them against physics-based foundation models,
-refutes its own ideas, learns across rounds, and ends with a testable experimental proposal.
+proposes falsifiable hypotheses, tests them against physics-based models, refutes its own
+ideas, learns across rounds, and ends with a testable experimental proposal.
 
 **Posture:** sell the vision. Breadth of domain coverage + the self-refuting loop are the pitch.
-No confidence/provenance UI for now (keep the fields in the data model; agents reason over them).
+Scientific honesty is a *feature* and is surfaced in the UI (confidence, OOD flags, proxy labels).
+
+Repo: https://github.com/dylancc5/athanor · Architecture notes: `.claude/project-context.md`
 
 ---
 
-## Capability boundary
+## Capability boundary (stated in every closing proposal)
 Reaches: anything decided by a few hundred atoms over a few picoseconds.
 Does NOT reach: bulk mechanical properties, long-timescale kinetics, device-level
 performance, cost/manufacturability — those come from retrieval + heuristics.
 
-## Core contracts (build first — everything hangs off these)
-- [ ] `Candidate {id, structure, repr_kind, domain, provenance}`
-- [ ] `Objective {property, direction, target, weight, unit}`
-- [ ] `Spec {objectives[], constraints[], domain, seed_strategy}`
-- [ ] `Measurement {candidate_id, property, value, unit, source, confidence, ood_flag}` (no UI surface)
-- [ ] `Scorer` protocol: `async score(Candidate[]) -> Measurement[]`
-- [ ] `Generator` protocol: `propose(Spec, Notebook) -> Candidate[]`
-- [ ] Typed event bus + append-only campaign event log (JSON)
-- [ ] **Replay mode** — deterministic campaign replay from event log (demo insurance)
+---
 
-## The campaign loop
-- [ ] Intake: NL goal -> Spec (Claude structured output)
-- [ ] Lab Notebook: append-only hypotheses / verdicts / learned heuristics
-- [ ] Strategist (Opus): Notebook -> falsifiable hypothesis + batch plan
-- [ ] Generator: retrieval seeds + Claude-proposed perturbations
-- [ ] Router: domain tag -> scorer + task head
-- [ ] Skeptic (Opus): veto on OOD / implausible / unsynthesizable
-- [ ] Analyst (Opus): SUPPORTED / REFUTED / INCONCLUSIVE + heuristic writeback
-- [ ] Controller: continue / pivot / spawn parallel branch / converge
-- [ ] Multi-objective Pareto ranking
-- [ ] BO/active-learning layer for candidate selection within a hypothesis
+## Phase 0 — Foundations ✅ DONE
+- [x] `Candidate` / `Objective` / `Spec` / `Measurement` / `Hypothesis` / `Artifact` / `Proposal` / `Ledger`
+- [x] `Scorer` and `Generator` protocols
+- [x] Typed event union + append-only JSONL campaign log
+- [x] **Replay mode** — deterministic replay verified (same log → identical state, twice)
+- [x] Multi-objective Pareto ranking (non-dominated sort, verified)
+- [x] Out-of-process worker harness — forced by `OMP: Error #15` between torch and tblite
+- [x] Isolated uv env per scorer (`backend/Makefile`: server / mace / xtb / fairchem)
+- [x] TS contracts generated from pydantic, discriminants forced required so the union narrows
+- [x] Fixture campaign from real calculations, for frontend development
+- [x] Public repo + MIT license + README
 
-## Scorer registry (ALL UNGATED — UMA is an optional upgrade, not a dependency)
-- [ ] Atomistic scorer wraps `ase.calculators.Calculator` -> every engine below is a 1-line swap
-- [ ] MACE-MP-0 `medium` (MIT, `pip install mace-torch`) — PRIMARY. bulk crystals, 89 elements
-      device="mps", default_dtype="float32" on the M5; some e3nn ops fall back to CPU
-- [ ] fairchem pre-UMA OC20 checkpoints (EquiformerV2 / GemNet-OC) — catalytic surfaces, ungated
-- [ ] fairchem ODAC23 checkpoints — MOF + CO2 direct air capture, ungated
-- [ ] GFN2-xTB via tblite — molecules/electrolytes/PFAS. real semi-empirical QM, no training cliff
-- [ ] Boltz-2 (MIT, ungated) — protein-ligand complexes + affinity; precompute & hash-cache
-- [ ] RDKit — descriptors, synthetic accessibility
-- [ ] Retrieval scorer — Materials Project (free API key), PubChem, PDB
-- [ ] OOD detector per scorer
-- [ ] OPTIONAL: UMA (gated) — request in background; swap in if approval lands
-      AVOID MACE-OMAT-0 (ASL / academic-only). ORB-v3 is Apache 2.0 but verify repo LICENSE.
+### Scorers verified running locally
+- [x] MACE-MP-0 `medium`, CPU/float32 (MPS cannot hold the float64 model) — 32-atom energy in ~2 s
+- [x] GFN2-xTB via tblite — molecular **and periodic** both work
+- [x] RDKit
+- [x] Materials Project API
+- [x] ODAC23 `EquiformerV2-S2EF-ODAC` checkpoint loads (Python 3.11 / torch 2.4.1 / scipy 1.14.1)
 
-## 3 demo campaigns — chosen as distinct VISUAL ARCHETYPES
-- [ ] **HERO — Solid-state Li conductor** · archetype: periodic crystal lattice
-      scorer: MACE-MP-0 | seeds: Materials Project Li-containing
-      objectives: migration barrier vs electrochemical window vs energy-above-hull
-      3D: lattice + animated NEB ion-migration tube
-      synthesis: solid-state sintering | test: electrochemical impedance spectroscopy
-- [ ] **MOF for atmospheric water harvesting** · archetype: porous framework
-      scorer: fairchem ODAC23 checkpoints (ungated) + MACE
-      objectives: water uptake vs regeneration energy vs framework stability
-      3D: cage + translucent void isosurface + pores filling with water
-      note: Yaghi lab @ Berkeley pioneered this — free local credibility
-- [ ] **Drug thermostability — cold-chain-free medicine** · archetype: biomolecular / molecular crystal
-      scorer: Boltz-2 (target binding, precomputed/cached) + GFN2-xTB (molecular crystal packing,
-      ungated — NOT MACE-OFF23, that's ASL) + RDKit
-      objectives: polymorph lattice-energy stability vs. solubility vs. degradation susceptibility
-      3D: molecular crystal packing + protein-ligand complex (ribbon + pocket + ligand)
+### Hero measurement — validated
+- [x] Vacancy-mediated CI-NEB migration barrier: supercell ≥8 Å, vacancy created, **hopping ion pinned**
+      during endpoint relaxation, barrier = **maximum uphill climb** (not peak − endpoint, which hides
+      the metastable interstitial). **Li₃PS₄ = 0.280 eV vs literature 0.2–0.5.** Li₃ErCl₆ = 0.170 eV.
+      Two earlier implementations were silently wrong by orders of magnitude — see project-context.md.
+
+---
+
+## Phase 1 — Parallel build 🔄 IN PROGRESS (6 agents, one directory each)
+- [ ] **A** — campaign loop, Claude agents (Strategist / Skeptic / Analyst / Controller / intake /
+      proposal), generator with information-gain selection, FastAPI + SSE + replay endpoints
+- [ ] **B** — atomistic scorer, MACE worker extensions, Materials Project layer with disk cache,
+      real OOD detector, scorer registry
+- [ ] **C** — xTB worker (molecular-crystal lattice energy), ODAC worker (adsorption energy),
+      pore geometry → void grid, RDKit + retrieval scorers
+- [ ] **D** — event reducer, app shell, hypothesis board with REFUTED state, live Pareto, streaming
+      lab notebook, measurements table, compute ledger, closing panel, timeline scrubber, tour mode
+- [ ] **E** — CIF parser, ball-and-stick, unit cells, coordination polyhedra, trajectory playback,
+      NEB ion-migration tube, void isosurface (marching cubes), adsorption sites
+- [ ] **F** — hypothesis tree with refuted branches going dark, 3D chemical-space flythrough,
+      Pareto frontier as a real surface
+
+## Phase 2 — Campaigns
+- [ ] **HERO — solid-state Li conductor** · periodic crystal lattice · MACE-MP-0
+      objectives: migration barrier vs. electrochemical window vs. energy above hull
+- [ ] **MOF for atmospheric water harvesting** · porous framework · ODAC23 + MACE
+      objectives: water adsorption vs. regeneration-energy proxy vs. framework stability
+      (Yaghi lab @ Berkeley pioneered this — local credibility)
+- [ ] **Drug thermostability — cold-chain-free medicine** · molecular crystal · GFN2-xTB + RDKit
+      objectives: polymorph lattice-energy stability vs. solubility proxy vs. degradation proxy
       stake: medicine that survives without refrigeration in hot, low-resource regions
-      synthesis: crystallization / formulation screen
-      test: accelerated stability study (ICH 40C / 75% RH) + DSC & XRPD for polymorph ID
+- [ ] Record all three as golden event logs; rehearse the domain-switch generality proof
 
-CUT: PFAS scavenger (archetype collides with MOF), green ammonia catalyst (slab = flat gray plane)
-AVOID: superconductors — Tc is not predictable from MLIPs; would be fiction
-Alternates held in reserve: twisted 2D bilayer moire, rare-earth-free magnets (spin vectors),
-Mars regolith ISRU, plastic depolymerization
+## Phase 3 — Ship
+- [ ] Static replay build → Vercel (CLI already authenticated as `dylancc5-7738`)
+- [ ] Verify the live URL in Chrome, console clean
+- [ ] README architecture diagram
 
-## 3D (react-three-fiber as single rendering substrate; converter -> unified scene graph)
-- [ ] Converters: CIF/POSCAR -> cells, SMILES -> molecules, PDB -> protein, slab+adsorbate
-- [ ] Structural: unit cells, supercells, coordination polyhedra, MOF void isosurface,
-      ball-and-stick, HOMO/LUMO isosurfaces, protein ribbon + pocket surface
-- [ ] Dynamic: relaxation trajectory playback (free from the optimizer — keep the frames),
-      Li-ion NEB migration path as animated tube, phonon modes, charge-density coloring
-- [ ] Abstract (the differentiator): 3D chemical-space flythrough of all candidates,
-      Pareto as a real 3D surface, hypothesis tree growing / refuted branches going dark
-
-## Frontend
-- [ ] Event-stream-driven UI (SSE); UI = pure fn of event log
-- [ ] NL goal input -> Spec materializes
-- [ ] Hypothesis board with REFUTED state (the money shot)
-- [ ] Live Pareto frontier, candidates as points
-- [ ] 3D viewer for EVERY output type: molecules, crystals, surface slabs,
-      MOF cages, protein-ligand complexes (3Dmol.js; animate Li-ion pathway)
-- [ ] Self-writing Lab Notebook panel (streaming prose)
-- [ ] Closing panel: synthesis route + validation protocol + falsification criteria
-
-## Demo prep
-- [x] Materials Project API key — tested, working
-- [x] Anthropic API key — tested, working
-- [ ] Pull Boltz-2 weights; precompute + cache demo complexes
-- [ ] Record golden campaigns to event logs
-- [ ] Rehearse the 15-second domain-switch generality proof
+## Phase 4 — Video
+- [x] Script drafted → `video/script.md` (~3:50)
+- [x] Playwright recorder → `video/record.mjs` (drives `?tour=1`, 1080p, reports console errors)
+- [ ] Record the tour for all three campaigns
+- [ ] Remotion title cards + tech slide + captions
+- [ ] Teleprompter page for Dylan's take
+- [ ] Dylan records webcam → `video/input/dylan.mov`
+- [ ] Retime cuts to his delivery, add PIP, export YouTube-ready MP4
 
 ---
 
 ## Decisions
-- Name -> ATHANOR
-- Hero campaign -> solid-state Li conductor
-- Campaign count -> 3, by visual archetype
-- Campaign 3 framing -> drug thermostability (NOT the antibiotic framing)
-- Stack: Next.js + FastAPI (assumed)
-- Model split: Opus for Strategist/Skeptic/Analyst, Haiku for parsing
+- Name → ATHANOR
+- Hero campaign → solid-state Li conductor
+- Campaign count → 3, chosen as distinct visual archetypes
+- **Campaign 3 → molecular-crystal polymorph stability. NO proteins, docking, or binding affinity;
+  Boltz-2 dropped entirely.**
+- Stack: Next.js 15 + React 19 + react-three-fiber v9 (single rendering substrate, no 3Dmol.js)
+  + FastAPI
+- Model split: Opus 5.5 for Strategist/Skeptic/Analyst/Controller, Haiku 5.5 for parsing
+- Public demo is replay-only; the goal input politely declines to spend API budget
+- CUT: PFAS scavenger (archetype collides with MOF), green ammonia catalyst (slab = flat gray plane)
+- AVOID: superconductors (Tc not predictable from MLIPs — would be fiction);
+  MACE-OMAT-0 / MACE-OFF23 (academic-only licensing)
+- Reserve archetypes: twisted 2D bilayer moiré, rare-earth-free magnets, Mars regolith ISRU
 
 ## Review
 _(fill in when done)_
