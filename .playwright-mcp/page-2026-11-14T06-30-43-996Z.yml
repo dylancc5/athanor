@@ -1,0 +1,42 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - generic [ref=f5e6]:
+      - generic [ref=f5e7]: ATHANOR
+      - text: Hypothesis tree — 5 rounds, 4 branches, two refuted
+    - generic [ref=f5e8]:
+      - generic [ref=f5e9]: OPEN
+      - generic [ref=f5e11]: SUPPORTED
+      - generic [ref=f5e13]: REFUTED
+      - generic [ref=f5e15]: INCONCLUSIVE
+    - generic [ref=f5e17]:
+      - link "tree" [ref=f5e18] [cursor=pointer]:
+        - /url: "?scene=tree"
+      - link "tree-earlier" [ref=f5e19] [cursor=pointer]:
+        - /url: "?scene=tree-earlier"
+      - link "tree-fixture" [ref=f5e20] [cursor=pointer]:
+        - /url: "?scene=tree-fixture"
+      - link "tree-single" [ref=f5e21] [cursor=pointer]:
+        - /url: "?scene=tree-single"
+      - link "tree-chain" [ref=f5e22] [cursor=pointer]:
+        - /url: "?scene=tree-chain"
+      - link "tree-broken" [ref=f5e23] [cursor=pointer]:
+        - /url: "?scene=tree-broken"
+      - link "space" [ref=f5e24] [cursor=pointer]:
+        - /url: "?scene=space"
+      - link "space-fly" [ref=f5e25] [cursor=pointer]:
+        - /url: "?scene=space-fly"
+      - link "space-fixture" [ref=f5e26] [cursor=pointer]:
+        - /url: "?scene=space-fixture"
+      - link "space-empty" [ref=f5e27] [cursor=pointer]:
+        - /url: "?scene=space-empty"
+      - link "pareto" [ref=f5e28] [cursor=pointer]:
+        - /url: "?scene=pareto"
+      - link "pareto-fixture" [ref=f5e29] [cursor=pointer]:
+        - /url: "?scene=pareto-fixture"
+      - link "pareto-degenerate" [ref=f5e30] [cursor=pointer]:
+        - /url: "?scene=pareto-degenerate"
+      - link "pareto-collinear" [ref=f5e31] [cursor=pointer]:
+        - /url: "?scene=pareto-collinear"
+      - link "pareto-empty" [ref=f5e32] [cursor=pointer]:
+        - /url: "?scene=pareto-empty"
+  - alert [ref=f5e33]

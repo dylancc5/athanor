@@ -28,7 +28,7 @@ from typing import Any
 
 from ase import Atoms
 
-from .structure import AtomsDict, dict_to_atoms
+from .structure import AtomsDict, as_json_safe, dict_to_atoms
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_DIR.parent
@@ -40,8 +40,16 @@ CACHE_SCHEMA = 1
 
 SOURCE = "materials_project"
 
-# Fields we always ask for. `energy_per_atom` is here so a MACE energy can be
-# sanity-checked against DFT rather than reported in a vacuum.
+# The summary endpoint aggregates the *mixed* GGA/GGA+U/r2SCAN thermo scheme.
+# Its `uncorrected_energy_per_atom` is therefore the r2SCAN energy, which is on
+# a completely different scale from GGA — for mp-985583 the two differ by
+# 2.47 eV/atom. MACE-MP-0 was fitted to MPtrj, i.e. raw GGA/GGA+U VASP
+# energies, so comparing a MACE energy against the summary's "uncorrected"
+# number is meaningless. `get_thermo` fetches the GGA_GGA+U entry instead.
+MIXED_SCHEME = "GGA_GGA+U_R2SCAN"
+MACE_TRAINING_SCHEME = "GGA_GGA+U"
+
+# Fields we always ask for.
 SUMMARY_FIELDS = (
     "material_id",
     "formula_pretty",
@@ -141,12 +149,15 @@ def _cached(op: str, params: dict[str, Any], compute) -> Any:
             CACHE_STATS["hits"] += 1
             return entry["result"]
 
-    result = compute()
+    # `as_json_safe` converts numpy scalars to Python ones. Note the absence of
+    # `default=str`: with it, a np.int64 serializes to the *string* "30" and the
+    # cache quietly changes a field's type. Anything it cannot convert must
+    # raise here rather than be stringified into the cache.
+    result = as_json_safe(compute())
     CACHE_STATS["misses"] += 1
     text = json.dumps(
         {"schema": CACHE_SCHEMA, "op": op, "params": params, "result": result},
         sort_keys=True,
-        default=str,
     )
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     # Atomic: a crash mid-write must not leave a half file that later parses.
@@ -286,7 +297,7 @@ def search_near_hull(
         try:
             with _rester() as mpr:
                 docs = mpr.materials.summary.search(**query)
-        except Exception as exc:  # noqa: BLE001 — surfaced, never defaulted
+        except Exception as exc:
             raise MPError(f"summary.search failed: {type(exc).__name__}: {exc}") from exc
 
         out: list[dict[str, Any]] = []
@@ -322,7 +333,7 @@ def get_entry(material_id: str, *, with_structure: bool = True) -> MPEntry:
                 docs = mpr.materials.summary.search(
                     material_ids=[mid], fields=[*SUMMARY_FIELDS, "structure"]
                 )
-        except Exception as exc:  # noqa: BLE001 — surfaced, never defaulted
+        except Exception as exc:
             raise MPError(f"summary lookup of {mid} failed: {type(exc).__name__}: {exc}") from exc
         if not docs:
             raise MPError(f"{mid}: no such material in Materials Project")
@@ -332,6 +343,150 @@ def get_entry(material_id: str, *, with_structure: bool = True) -> MPEntry:
     if not with_structure:
         entry = MPEntry.from_json({**entry.to_json(), "structure": None})
     return entry
+
+
+def competing_phases(elements: list[str], *, max_atoms: int | None = 80) -> dict[str, Any]:
+    """Every known phase in a chemical system, as structures to be re-relaxed.
+
+    These are the phases a candidate competes against on a convex hull. Note
+    what is and is not used: the *structures* and *compositions* come from
+    Materials Project, the *energies* do not — the caller recomputes those with
+    its own potential so the hull and the candidate sit on one energy scale.
+    Mixing MP's DFT energies with MACE energies would be meaningless, as the
+    two use different reference states.
+
+    `get_entries_in_chemsys` is the right call here because it spans every
+    subsystem (for Li-P-S: Li, P, S, Li-P, Li-S, P-S and Li-P-S), and a hull
+    is undefined without the elemental endpoints. It is pinned to the
+    `GGA_GGA+U` thermo type for two reasons: mixing functionals would return
+    several entries per material and waste a relaxation on each duplicate, and
+    GGA/GGA+U is the functional MACE-MP-0 was itself trained on, so these are
+    the structures closest to what the model expects. Only the structures are
+    used, never these entries' energies.
+
+    Returns `{"phases": [...], "skipped_large": n, "skipped_no_structure": n,
+    "total": n}`, sorted deterministically by material id. `max_atoms` filters
+    out cells too large to relax, and the skip counts are returned rather than
+    discarded because a dropped phase could have been a true hull vertex — the
+    caller states this on the measurement.
+    """
+    els = sorted({str(e) for e in elements})
+    if not els:
+        raise ValueError("no elements given")
+    params = {"elements": els, "max_atoms": max_atoms}
+
+    def compute() -> dict[str, Any]:
+        try:
+            with _rester() as mpr:
+                entries = mpr.get_entries_in_chemsys(
+                    els,
+                    compatible_only=False,
+                    additional_criteria={"thermo_types": [MACE_TRAINING_SCHEME]},
+                )
+        except Exception as exc:
+            raise MPError(
+                f"get_entries_in_chemsys({els}) failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        out: list[dict[str, Any]] = []
+        skipped_large = 0
+        skipped_no_structure = 0
+        for entry in entries:
+            structure = getattr(entry, "structure", None)
+            if structure is None:
+                skipped_no_structure += 1  # cannot be re-relaxed
+                continue
+            n_sites = len(structure)
+            if max_atoms is not None and n_sites > int(max_atoms):
+                skipped_large += 1
+                continue
+            out.append(
+                {
+                    "material_id": str(getattr(entry, "entry_id", "") or ""),
+                    "formula_pretty": str(structure.composition.reduced_formula),
+                    "composition": {
+                        str(el): float(n)
+                        for el, n in sorted(
+                            structure.composition.as_dict().items(), key=lambda kv: str(kv[0])
+                        )
+                    },
+                    "n_sites": n_sites,
+                    "structure": _structure_to_dict(structure),
+                }
+            )
+        out.sort(key=lambda d: (d["material_id"], d["formula_pretty"]))
+        return {
+            "phases": out,
+            "skipped_large": skipped_large,
+            "skipped_no_structure": skipped_no_structure,
+            "total": len(entries),
+            "elements": els,
+            "max_atoms": max_atoms,
+        }
+
+    return _cached("phases", params, compute)
+
+
+async def acompeting_phases(elements: list[str], *, max_atoms: int | None = 80):
+    return await asyncio.to_thread(competing_phases, elements, max_atoms=max_atoms)
+
+
+def get_thermo(material_id: str) -> dict[str, Any]:
+    """Per-scheme thermodynamic entries for one material, keyed by thermo type.
+
+    Needed because MACE-MP-0's training energies are raw GGA/GGA+U, and only
+    this endpoint exposes that scheme's `uncorrected_energy_per_atom` separately
+    from the mixed-scheme value the summary reports.
+    """
+    mid = str(material_id).strip()
+    if not mid:
+        raise ValueError("material_id is empty")
+    fields = [
+        "thermo_type",
+        "energy_per_atom",
+        "uncorrected_energy_per_atom",
+        "energy_above_hull",
+        "formation_energy_per_atom",
+    ]
+
+    def compute() -> dict[str, Any]:
+        try:
+            with _rester() as mpr:
+                docs = mpr.materials.thermo.search(material_ids=[mid], fields=fields)
+        except Exception as exc:
+            raise MPError(f"thermo lookup of {mid} failed: {type(exc).__name__}: {exc}") from exc
+        out: dict[str, Any] = {}
+        for doc in docs:
+            out[str(doc.thermo_type)] = {
+                f: (None if getattr(doc, f, None) is None else float(getattr(doc, f)))
+                for f in fields
+                if f != "thermo_type"
+            }
+        return out
+
+    return _cached("thermo", {"material_id": mid, "fields": fields}, compute)
+
+
+def gga_reference_energy_per_atom(material_id: str) -> float | None:
+    """The raw GGA/GGA+U energy per atom MACE-MP-0 was trained to reproduce.
+
+    None when Materials Project has no GGA/GGA+U entry for this material (some
+    are r2SCAN-only), in which case callers must omit the comparison rather
+    than fall back to a value on a different energy scale.
+    """
+    entry = get_thermo(material_id).get(MACE_TRAINING_SCHEME)
+    if not entry:
+        return None
+    value = entry.get("uncorrected_energy_per_atom")
+    return None if value is None else float(value)
+
+
+async def aget_thermo(material_id: str) -> dict[str, Any]:
+    return await asyncio.to_thread(get_thermo, material_id)
+
+
+async def agga_reference_energy_per_atom(material_id: str) -> float | None:
+    return await asyncio.to_thread(gga_reference_energy_per_atom, material_id)
 
 
 def get_structure(material_id: str) -> Atoms:

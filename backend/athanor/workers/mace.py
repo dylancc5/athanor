@@ -156,6 +156,58 @@ def op_relax(req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def op_relax_many(req: dict[str, Any]) -> dict[str, Any]:
+    """Relax a batch of structures in one process, returning energies only.
+
+    Exists for convex-hull construction, which needs the MACE energy of every
+    competing phase in a chemical system — dozens of small cells. Done as
+    separate worker calls, each would pay the ~2 s model load again; here the
+    model is loaded once. No trajectories are kept, because nothing plays these
+    back and the payload would be large.
+
+    A single structure that fails to relax does not abort the batch: its entry
+    carries `error` instead of an energy, so the caller can exclude that phase
+    from the hull and say so, rather than silently building a hull with a hole.
+    """
+    from ase.optimize import BFGS
+
+    fmax = float(req.get("fmax", 0.05))
+    steps = int(req.get("steps", 120))
+    calc = get_calculator()
+
+    results: list[dict[str, Any]] = []
+    for item in req["structures"]:
+        label = item.get("label")
+        try:
+            atoms = dict_to_atoms(item["atoms"])
+            atoms.calc = calc
+            initial = float(atoms.get_potential_energy())
+            converged = bool(BFGS(atoms, logfile=None).run(fmax=fmax, steps=steps))
+            energy = float(atoms.get_potential_energy())
+            results.append(
+                {
+                    "label": label,
+                    "energy_ev": energy,
+                    "energy_per_atom": energy / len(atoms),
+                    "initial_energy_ev": initial,
+                    "max_force": float(np.abs(atoms.get_forces()).max()),
+                    "converged": converged,
+                    "n_atoms": len(atoms),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 — per-item, reported not hidden
+            results.append({"label": label, "error": f"{type(exc).__name__}: {exc}"})
+
+    return {
+        "results": results,
+        "n_ok": sum(1 for r in results if "energy_per_atom" in r),
+        "n_failed": sum(1 for r in results if "error" in r),
+        "model": f"mace-mp-0-{MODEL}",
+        "fmax": fmax,
+        "steps": steps,
+    }
+
+
 def op_path(req: dict[str, Any]) -> dict[str, Any]:
     """Energies along a straight-line path for one moving atom.
 
@@ -353,8 +405,10 @@ def op_neb(req: dict[str, Any]) -> dict[str, Any]:
 
 OPS = {
     "ping": op_ping,
+    "elements": op_elements,
     "energy": op_energy,
     "relax": op_relax,
+    "relax_many": op_relax_many,
     "path": op_path,
     "neb": op_neb,
 }

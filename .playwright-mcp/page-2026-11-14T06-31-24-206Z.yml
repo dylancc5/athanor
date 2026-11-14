@@ -1,0 +1,70 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - banner [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - heading "ATHANOR" [level=1] [ref=f1e5]
+        - generic [ref=f1e6]: autonomous research campaigns
+      - generic [ref=f1e7]:
+        - button "Tour" [ref=f1e9]
+        - generic "replaying recorded campaigns from static files — no backend required" [ref=f1e10]: offline
+    - main [ref=f1e11]:
+      - generic [ref=f1e12]:
+        - generic [ref=f1e13]:
+          - generic [ref=f1e14]:
+            - button "Play" [ref=f1e15]
+            - button "Prev" [disabled] [ref=f1e16]
+            - button "Next" [disabled] [ref=f1e17]
+            - button "Restart" [ref=f1e18]
+            - button "0.5x" [ref=f1e20]
+            - button "1x" [ref=f1e21]
+            - button "2x" [ref=f1e22]
+            - button "4x" [ref=f1e23]
+            - button "End" [ref=f1e25]
+            - generic [ref=f1e26]:
+              - generic [ref=f1e27]: 0/0
+              - generic [ref=f1e28]: 0:00
+          - slider "Campaign timeline" [ref=f1e30] [cursor=pointer]: "0"
+          - generic [ref=f1e31]: start of campaign
+        - generic [ref=f1e33]:
+          - generic [ref=f1e34]:
+            - generic [ref=f1e35]:
+              - generic [ref=f1e37]:
+                - heading "Research goal" [level=2] [ref=f1e38]
+                - generic [ref=f1e39]: intake
+              - generic [ref=f1e40]:
+                - generic [ref=f1e41]:
+                  - textbox "Describe what you want found, in a sentence. e.g. a solid electrolyte with a low Li migration barrier that survives a lithium metal anode." [ref=f1e42]
+                  - generic [ref=f1e43]:
+                    - generic [ref=f1e44]: Cmd+Enter to run
+                    - button "Run campaign" [disabled] [ref=f1e45]
+                - generic [ref=f1e46]:
+                  - generic [ref=f1e47]: Awaiting intake
+                  - paragraph [ref=f1e48]: The goal is parsed into objectives with units and directions, plus hard constraints, before any compute is spent.
+            - generic [ref=f1e49]:
+              - generic [ref=f1e51]:
+                - heading "Compute ledger" [level=2] [ref=f1e52]
+                - generic [ref=f1e53]: provisional
+              - paragraph [ref=f1e56]: Nothing has been spent yet.
+          - generic [ref=f1e57]:
+            - generic [ref=f1e59]:
+              - generic [ref=f1e61]:
+                - heading "Hypothesis board" [level=2] [ref=f1e62]
+                - generic [ref=f1e63]: 0 proposed
+              - paragraph [ref=f1e66]: The strategist has not proposed a hypothesis yet. Each one arrives with a prediction and the condition that would kill it.
+            - generic [ref=f1e68]:
+              - heading "Measurements" [level=2] [ref=f1e71]
+              - paragraph [ref=f1e74]: No measurements yet. Each one records its source, its method, and whether it is a proxy or an extrapolation.
+            - generic [ref=f1e75]:
+              - heading "Experimental proposal" [level=2] [ref=f1e78]
+              - paragraph [ref=f1e81]: "The campaign closes with a proposal a bench scientist could actually run: a synthesis route, a validation protocol, and the results that would prove it wrong."
+          - generic [ref=f1e82]:
+            - generic [ref=f1e84]:
+              - heading "Viewer" [level=2] [ref=f1e86]
+              - generic [ref=f1e87]: initializing renderer
+            - generic [ref=f1e89]:
+              - heading "Pareto frontier" [level=2] [ref=f1e92]
+              - paragraph [ref=f1e95]: Candidates appear here once they have been scored on two objectives. Nothing is ranked until the measurements exist.
+            - generic [ref=f1e97]:
+              - heading "Lab notebook" [level=2] [ref=f1e100]
+              - paragraph [ref=f1e103]: Every agent writes here as it reasons. The notebook is append-only, so the record of a wrong turn survives the turn.
+  - alert [ref=f1e104]

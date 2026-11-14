@@ -25,6 +25,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CHROME, DAMP_LAMBDA, TREE, VERDICT_COLORS, verdictColor } from "./theme";
 import { damp, truncate, type Vec3 } from "./math";
+import { makeGlowTexture } from "./glow";
 import {
   EMPTY_LAYOUT,
   layoutTree,
@@ -44,7 +45,9 @@ export interface HypothesisTreeProps {
 const SPAWN_STAGGER = 0.07; // seconds between nodes on a bulk (replayed) mount
 
 const SCRATCH = new THREE.Color();
+const GREY = new THREE.Color("#334155");
 const HSL = { h: 0, s: 0, l: 0 };
+
 
 /** One hypothesis. Owns its own animation so the tree can re-render freely. */
 function TreeNode({
@@ -54,6 +57,7 @@ function TreeNode({
   selected,
   hovered,
   geometry,
+  glow,
   delay,
   onSelect,
   onHover,
@@ -64,12 +68,15 @@ function TreeNode({
   selected: boolean;
   hovered: boolean;
   geometry: THREE.SphereGeometry;
+  glow: THREE.CanvasTexture | null;
   delay: number;
   onSelect?: (id: string) => void;
   onHover?: (id: string | null) => void;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  const haloRef = useRef<THREE.MeshBasicMaterial>(null);
+  const haloMeshRef = useRef<THREE.Mesh>(null);
   const clock = useRef(0);
   const scale = useRef(0);
   const current = useRef({ opacity: 1, emissive: 0.5 });
@@ -90,9 +97,9 @@ function TreeNode({
     scale.current = damp(scale.current, live ? emphasis * sizeForState : 0, DAMP_LAMBDA * 1.3, dt);
     mesh.scale.setScalar(Math.max(scale.current, 0.0001));
 
-    const pulse = verdict === null ? 0.1 + 0.07 * Math.sin(clock.current * 2.1) : 0;
+    const pulse = verdict === null ? 0.12 + 0.09 * Math.sin(clock.current * 2.1) : 0;
     const targetOpacity = live ? state.opacity : 0;
-    const targetEmissive = (state.refuted ? 0.16 : state.shadowed ? 0.3 : 0.62) + pulse;
+    const targetEmissive = (state.refuted ? 0.16 : state.shadowed ? 0.5 : 1.25) + pulse;
     current.current.opacity = damp(current.current.opacity, targetOpacity, DAMP_LAMBDA * 0.9, dt);
     current.current.emissive = damp(current.current.emissive, targetEmissive, DAMP_LAMBDA, dt);
 
@@ -113,10 +120,35 @@ function TreeNode({
     mat.emissive.copy(SCRATCH);
     mat.emissiveIntensity = current.current.emissive;
     mat.opacity = current.current.opacity;
+
+    // The halo is what makes a live hypothesis look lit and a refuted one look
+    // extinguished; it carries most of the "goes dark" read at a glance.
+    const halo = haloRef.current;
+    if (haloMeshRef.current) haloMeshRef.current.scale.setScalar(Math.max(scale.current, 0.0001));
+    if (halo) {
+      halo.color.copy(SCRATCH);
+      halo.opacity =
+        current.current.opacity *
+        (state.refuted ? 0.07 : state.shadowed ? 0.2 : 0.5 + 0.07 * Math.sin(clock.current * 2.1));
+    }
   });
 
   return (
     <group position={node.position}>
+      <Billboard>
+        <mesh ref={haloMeshRef} raycast={() => null}>
+          <circleGeometry args={[TREE.nodeRadius * 3.8, 40]} />
+          <meshBasicMaterial
+            ref={haloRef}
+            map={glow}
+            transparent
+            opacity={0}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </mesh>
+      </Billboard>
       <mesh
         ref={meshRef}
         geometry={geometry}
@@ -184,6 +216,12 @@ function TreeEdges({
       const dim = Math.min(childState?.opacity ?? 1, parentState?.opacity ?? 1);
       from.set(verdictColor(verdicts[edge.parentId] ?? null));
       to.set(verdictColor(verdicts[edge.childId] ?? null));
+      // Dimmed edges desaturate as well as darken, so a dead branch reads as
+      // grey rather than as a bright red thread across the scene.
+      if (dim < 1) {
+        from.lerp(GREY, 1 - dim);
+        to.lerp(GREY, 1 - dim);
+      }
       let prev: Vec3 | null = null;
       for (let s = 0; s <= SEG; s++) {
         const t = s / SEG;
@@ -196,7 +234,7 @@ function TreeEdges({
           edge.from[2] + (edge.to[2] - edge.from[2]) * e,
         ];
         if (prev) {
-          c.copy(from).lerp(to, t).multiplyScalar(0.55 * dim + 0.1);
+          c.copy(from).lerp(to, t).multiplyScalar(0.78 * dim + 0.12);
           verts.push(...prev, ...p);
           cols.push(c.r, c.g, c.b, c.r, c.g, c.b);
         }
@@ -330,6 +368,28 @@ export function HypothesisTree({
   const geometry = useMemo(() => new THREE.SphereGeometry(TREE.nodeRadius, 32, 22), []);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
+  const glow = useMemo(() => makeGlowTexture(), []);
+  useEffect(() => () => glow?.dispose(), [glow]);
+
+  // Stagger only the nodes that are new in *this* render. Keying the delay on
+  // a global arrival index would make the 24th hypothesis of a live campaign
+  // wait 1.6s before it grew, leaving its edge dangling to nothing; on a bulk
+  // mount (a replay) every node is new, so the campaign still unfolds.
+  const seenIds = useRef<Set<string>>(new Set());
+  const delays = useMemo(() => {
+    const out: Record<string, number> = {};
+    let k = 0;
+    for (const n of layout.nodes) {
+      out[n.id] = seenIds.current.has(n.id) ? 0 : Math.min(k++ * SPAWN_STAGGER, 1.6);
+    }
+    return out;
+  }, [layout]);
+  useEffect(() => {
+    // Committed after the render, so React's double-invocation in development
+    // cannot swallow the stagger.
+    for (const n of layout.nodes) seenIds.current.add(n.id);
+  }, [layout]);
+
   // Recentre vertically as the tree grows, damped so it never jolts.
   const targetY = -(layout.maxDepth * TREE.levelHeight) / 2;
   useFrame((_, dt) => {
@@ -346,8 +406,8 @@ export function HypothesisTree({
 
   return (
     <group ref={groupRef}>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[4, 8, 6]} intensity={0.75} />
+      <ambientLight intensity={0.62} />
+      <directionalLight position={[4, 8, 6]} intensity={0.9} />
       <directionalLight position={[-6, 2, -4]} intensity={0.25} color="#93c5fd" />
 
       <RoundRings layout={layout} />
@@ -362,7 +422,8 @@ export function HypothesisTree({
           selected={placed.id === selectedId}
           hovered={placed.id === hovered}
           geometry={geometry}
-          delay={Math.min(placed.order * SPAWN_STAGGER, 1.6)}
+          glow={glow}
+          delay={delays[placed.id] ?? 0}
           onSelect={onSelect}
           onHover={setHovered}
         />

@@ -80,6 +80,8 @@ export interface TourStep {
 
 interface CampaignStore {
   source: CampaignSource | null;
+  /** whichever source actually provided the loaded log — artifacts follow it */
+  artifactSource: CampaignSource | null;
   sourceStatus: SourceStatus;
   campaigns: CampaignSummary[];
 
@@ -96,6 +98,8 @@ interface CampaignStore {
   follow: boolean;
 
   view: ViewName;
+  /** camera flythrough of the chemical-space cloud (agent F drives the camera) */
+  flythrough: boolean;
   selectedCandidateId: string | null;
   selectedHypothesisId: string | null;
 
@@ -110,7 +114,10 @@ interface CampaignStore {
   publicDemoNotice: boolean;
 
   init: () => Promise<void>;
-  loadCampaign: (id: string, opts?: { cursor?: number; play?: boolean }) => Promise<void>;
+  loadCampaign: (
+    id: string,
+    opts?: { cursor?: number; play?: boolean; live?: boolean },
+  ) => Promise<void>;
   setCursor: (cursor: number) => void;
   stepBy: (delta: number) => void;
   play: () => void;
@@ -122,6 +129,7 @@ interface CampaignStore {
   /** move the cursor to just after the first event matching a predicate */
   jumpToEvent: (match: (e: Event) => boolean) => boolean;
   setView: (view: ViewName) => void;
+  setFlythrough: (on: boolean) => void;
   selectCandidate: (id: string | null) => void;
   selectHypothesis: (id: string | null) => void;
   ensureArtifact: (artifact: Artifact) => void;
@@ -172,6 +180,7 @@ export const useCampaign = create<CampaignStore>((set, get) => {
 
   return {
     source: null,
+    artifactSource: null,
     sourceStatus: "idle",
     campaigns: [],
     campaignId: null,
@@ -184,6 +193,7 @@ export const useCampaign = create<CampaignStore>((set, get) => {
     speed: 1,
     follow: true,
     view: "structure",
+    flythrough: false,
     selectedCandidateId: null,
     selectedHypothesisId: null,
     artifactPayloads: {},
@@ -221,6 +231,7 @@ export const useCampaign = create<CampaignStore>((set, get) => {
       const source = get().source ?? staticSource();
       set({
         campaignId: id,
+        artifactSource: null,
         loading: true,
         loadError: null,
         events: [],
@@ -232,8 +243,25 @@ export const useCampaign = create<CampaignStore>((set, get) => {
         selectedHypothesisId: null,
       });
       try {
-        const log = await source.fetchLog(id);
+        // Recorded campaigns ship as files, and the client-side pacer is what
+        // makes the scrubber and the tour work. Server-paced SSE replays the
+        // recorded timestamps raw, which drops whole bursts of events into one
+        // frame — so always prefer the full log when one exists, whatever the
+        // detected source is, and keep streaming for genuinely live campaigns.
+        const files = staticSource();
+        let log: Event[] | null = null;
+        let artifactsFrom: CampaignSource = source;
+        if (!opts?.live) {
+          try {
+            log = await files.fetchLog(id);
+            if (log) artifactsFrom = files;
+          } catch {
+            log = null;
+          }
+          if (!log) log = await source.fetchLog(id);
+        }
         if (log) {
+          set({ artifactSource: artifactsFrom });
           const cursor =
             opts?.cursor === undefined
               ? 0
@@ -248,10 +276,11 @@ export const useCampaign = create<CampaignStore>((set, get) => {
             set({ playing: true });
             schedule();
           }
-        } else if (source.subscribe) {
-          // server-paced stream: append and follow the tail
-          set({ loading: false });
-          stream = source.subscribe(id, {
+        } else if (opts?.live ? source.subscribeLive : source.subscribe) {
+          // genuinely live campaign: append and follow the stream tail
+          const open = opts?.live ? source.subscribeLive! : source.subscribe!;
+          set({ loading: false, artifactSource: source });
+          stream = open(id, {
             onEvent: (event) => {
               const s = get();
               if (s.events.some((e) => e.seq === event.seq)) return;
@@ -337,7 +366,12 @@ export const useCampaign = create<CampaignStore>((set, get) => {
     },
 
     setView(view) {
-      set({ view });
+      // flythrough only means anything in the chemical-space view
+      set({ view, flythrough: view === "space" ? get().flythrough : false });
+    },
+
+    setFlythrough(on) {
+      set({ flythrough: on });
     },
 
     selectCandidate(id) {
@@ -349,11 +383,11 @@ export const useCampaign = create<CampaignStore>((set, get) => {
     },
 
     ensureArtifact(artifact) {
-      const { artifactPayloads, source, campaignId } = get();
+      const { artifactPayloads, artifactSource, source, campaignId } = get();
       if (artifact.id in artifactPayloads) return;
       if (inflightArtifacts.has(artifact.id)) return;
       if (!campaignId) return;
-      const src = source ?? staticSource();
+      const src = artifactSource ?? source ?? staticSource();
       inflightArtifacts.add(artifact.id);
       src
         .loadArtifact(campaignId, artifact)
@@ -375,7 +409,7 @@ export const useCampaign = create<CampaignStore>((set, get) => {
       const source = get().source ?? staticSource();
       try {
         const { campaign_id } = await source.startCampaign(goal);
-        await get().loadCampaign(campaign_id, { play: true });
+        await get().loadCampaign(campaign_id, { play: true, live: true });
       } catch (err) {
         if (err instanceof PublicDemoError) {
           set({ publicDemoNotice: true });

@@ -20,18 +20,25 @@ fiction dressed as physics.
 from __future__ import annotations
 
 import logging
-import os
 
 from pydantic import BaseModel, Field
 
-from ..contracts import Candidate, Provenance, Spec
+from ..contracts import Candidate, Hypothesis, Provenance, Spec
 from ..llm import LLM
 from ..structure import atoms_to_cif, reduced_formula
 from .router import retrieval_scorer
 
 log = logging.getLogger("athanor.seeds")
 
-MAX_ATOMS = 48  # keep a NEB supercell tractable on a laptop CPU
+#: Upper bound on a retrieved cell, to avoid pulling down absurd structures.
+#: Deliberately generous and deliberately NOT a compute budget: whether a cell
+#: is too big for a CI-NEB is the scorer's call (`AtomisticScorer.neb_max_atoms`),
+#: and it reports "not attempted" honestly when it is. A tight cap here instead
+#: silently removes materials from the search — a 48-atom cap excluded
+#: Li10GeP2S12 (50 sites) from a campaign whose hypothesis was explicitly about
+#: it, which cost a round and surfaced as an inconclusive verdict with no
+#: indication that the arm had never been reachable.
+MAX_ATOMS = 220
 
 
 class SeedQuery(BaseModel):
@@ -48,82 +55,135 @@ class SeedQuery(BaseModel):
 
 SEED_SYSTEM = """\
 You are choosing where an autonomous discovery platform should look for its
-first candidates. You do not invent structures — you name real chemical systems
-or real compounds that a structural database will be queried for.
+candidates. You do not invent structures — you name real chemical systems or
+real compounds that a structural database will be queried for.
 
-For a crystalline domain, give hyphenated element systems ('Li-P-S', 'Li-La-Zr-O')
-that a Materials Project query can resolve, ordered by how promising they are.
-For a molecular domain, give compound names that PubChem can resolve.
+For a crystalline domain, give hyphenated element systems ('Li-P-S', 'Li-Ge-P-S',
+'Li-La-Zr-O') that a Materials Project query can resolve, ordered by how
+promising they are. For a molecular domain, give compound names that PubChem can
+resolve.
 
 Fill in only the list that fits the domain; leave the other empty. Choose
 systems that are genuinely known to contain the behaviour the goal asks for —
-not aspirational ones."""
+not aspirational ones.
+
+When a hypothesis is given, the query exists to test THAT hypothesis, and this
+is the step where it succeeds or fails. Every arm the hypothesis names must be
+reachable from the systems you list: if the claim compares two specific
+materials, list the chemical system of each one, including the elements that
+only one of them contains. A query that cannot return the materials the
+falsification criterion is written about guarantees an inconclusive round, no
+matter how good the rest of the campaign is."""
 
 
-async def propose_seed_query(llm: LLM, spec: Spec, n: int) -> SeedQuery:
+async def propose_seed_query(
+    llm: LLM, spec: Spec, n: int, hypothesis: Hypothesis | None = None
+) -> SeedQuery:
+    """Ask Claude which chemical systems to query.
+
+    The hypothesis is passed in deliberately. Without it the query can only
+    reflect the spec, and a hypothesis whose falsification criterion names
+    particular materials gets a batch that cannot test it — which is an
+    inconclusive verdict decided before any compute was spent.
+    """
     from ..agents.base import render_spec
 
     kind = "molecular" if spec.domain == "drug_stability" else "crystalline"
+    parts = [render_spec(spec)]
+    if hypothesis is not None:
+        parts.append(
+            "The hypothesis this batch must be able to test:\n"
+            f"  claim: {hypothesis.statement}\n"
+            f"  prediction: {hypothesis.prediction}\n"
+            f"  FALSIFIED IF: {hypothesis.falsification_criterion}\n"
+            f"  batch strategy: {hypothesis.batch_plan.strategy}"
+        )
+    parts.append(
+        f"--- your task ---\n"
+        f"This is a {kind} domain. Name enough chemical systems or compounds to "
+        f"yield about {n} distinct candidates"
+        + (
+            ", and make sure every material named in the claim, the prediction and "
+            "the falsification criterion is reachable from the systems you list."
+            if hypothesis is not None
+            else "."
+        )
+    )
     return await llm.structured(
         SeedQuery,
         system=SEED_SYSTEM,
-        prompt=(
-            f"{render_spec(spec)}\n\n"
-            f"--- your task ---\n"
-            f"This is a {kind} domain. Name enough chemical systems or compounds to "
-            f"yield about {n} distinct seed candidates."
-        ),
+        prompt="\n\n".join(parts),
         effort="high",
         max_tokens=8000,
     )
 
 
-def _mp_seeds(chemical_systems: list[str], n: int, domain: str) -> list[Candidate]:
-    """Near-hull phases from Materials Project, smallest cells first."""
-    from mp_api.client import MPRester
-    from pymatgen.io.ase import AseAtomsAdaptor
+def _stability_key(entry) -> tuple[float, str]:
+    """Most stable first; ties broken on id so a recorded campaign replays."""
+    hull = entry.energy_above_hull
+    return (hull if hull is not None else 1e9, entry.material_id)
 
-    key = os.environ.get("MP_API_KEY")
-    if not key:
-        raise RuntimeError("MP_API_KEY is not set, so Materials Project cannot be queried")
 
-    found: list[dict] = []
-    with MPRester(key) as mpr:
-        for chemsys in chemical_systems[:6]:
-            try:
-                docs = mpr.materials.summary.search(
-                    chemsys=chemsys,
-                    fields=["material_id", "formula_pretty", "energy_above_hull", "structure"],
-                )
-            except Exception as exc:  # noqa: BLE001 — one bad system must not end the query
-                log.warning("Materials Project query failed for %s: %s", chemsys, exc)
-                continue
-            docs = [d for d in docs if len(d.structure) <= MAX_ATOMS]
-            docs.sort(key=lambda d: (float(d.energy_above_hull), len(d.structure)))
-            for d in docs[:2]:
-                found.append(
-                    {
-                        "mp_id": str(d.material_id),
-                        "formula": d.formula_pretty,
-                        "hull": float(d.energy_above_hull),
-                        "atoms": AseAtomsAdaptor.get_atoms(d.structure),
-                    }
-                )
+async def _mp_seeds(
+    chemical_systems: list[str], n: int, domain: str, spec: Spec
+) -> list[Candidate]:
+    """Near-hull phases from Materials Project, via the shared cached helper.
 
+    `athanor.mp` does the filtering server-side, caches to disk and orders
+    deterministically, which is what makes a recorded campaign replayable.
+    """
+    from .. import mp
+
+    excluded: list[str] = []
+    for constraint in spec.constraints:
+        if constraint.property == "elements" and constraint.op == "not_in":
+            value = constraint.value
+            if isinstance(value, list):
+                excluded.extend(str(v) for v in value)
+
+    per_system: list[list] = []
     seen: set[str] = set()
-    unique: list[dict] = []
-    for s in sorted(found, key=lambda s: (s["hull"], s["mp_id"])):
-        if s["mp_id"] not in seen:
-            seen.add(s["mp_id"])
-            unique.append(s)
+    for chemsys in chemical_systems[:6]:
+        try:
+            found = await mp.asearch_near_hull(
+                chemsys=chemsys,
+                exclude_elements=excluded or None,
+                max_atoms=MAX_ATOMS,
+                limit=3,
+                with_structures=True,
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad system must not end the query
+            log.warning("Materials Project query failed for %s: %s", chemsys, exc)
+            continue
+        usable = []
+        for entry in found:
+            if entry.material_id not in seen and entry.structure is not None:
+                seen.add(entry.material_id)
+                usable.append(entry)
+        usable.sort(key=_stability_key)
+        if usable:
+            per_system.append(usable)
+
+    # Round-robin across the systems, not a single global sort by stability.
+    # The systems are the arms of the hypothesis, and one arm is usually nearer
+    # the hull than the other: a global sort fills the whole batch from the
+    # stable arm and silently drops the comparison the falsification criterion
+    # is written about. Taking the best of each system first guarantees every
+    # arm is represented, and only then are the remaining slots filled by
+    # stability.
+    entries: list = []
+    for rank in range(max((len(x) for x in per_system), default=0)):
+        tier = [group[rank] for group in per_system if rank < len(group)]
+        tier.sort(key=_stability_key)
+        entries.extend(tier)
 
     out: list[Candidate] = []
-    for s in unique[:n]:
-        atoms = s["atoms"]
+    for entry in entries[:n]:
+        atoms = entry.atoms()
         out.append(
             Candidate(
-                id=f"c-{s['mp_id']}",
-                name=s["formula"],
+                id=f"c-{entry.material_id}",
+                name=entry.formula_pretty,
                 formula=reduced_formula(atoms),
                 structure=atoms_to_cif(atoms),
                 repr_kind="cif",
@@ -131,7 +191,7 @@ def _mp_seeds(chemical_systems: list[str], n: int, domain: str) -> list[Candidat
                 provenance=Provenance(
                     source="retrieval",
                     database="materials_project",
-                    external_id=s["mp_id"],
+                    external_id=entry.material_id,
                 ),
             )
         )
@@ -186,18 +246,20 @@ def _pubchem_seeds(names: list[str], n: int, domain: str) -> list[Candidate]:
     return out
 
 
-async def retrieve_seeds(llm: LLM, spec: Spec, n: int) -> tuple[list[Candidate], str]:
+async def retrieve_seeds(
+    llm: LLM, spec: Spec, n: int, hypothesis: Hypothesis | None = None
+) -> tuple[list[Candidate], str]:
     """Return `(candidates, a sentence saying where they came from)`.
 
     Raises if no honest source exists for the domain — the caller turns that
     into a non-fatal `CampaignError` rather than fabricating candidates.
     """
-    scorer = retrieval_scorer()
+    scorer = retrieval_scorer(spec.domain)
     if scorer is not None:
         candidates = list(await scorer.retrieve(spec, n))
         return candidates[:n], f"retrieved from the registry's {scorer.name} scorer"
 
-    query = await propose_seed_query(llm, spec, n)
+    query = await propose_seed_query(llm, spec, n, hypothesis)
     if spec.domain == "drug_stability":
         if not query.compound_names:
             raise RuntimeError("no compound names proposed, so PubChem cannot be queried")
@@ -206,14 +268,22 @@ async def retrieve_seeds(llm: LLM, spec: Spec, n: int) -> tuple[list[Candidate],
             "canonical SMILES retrieved from PubChem for "
             f"{len(seeds)} of the proposed compounds"
         )
-    elif spec.domain == "solid_electrolyte":
+    elif spec.domain in ("solid_electrolyte", "mof_water"):
         if not query.chemical_systems:
-            raise RuntimeError("no chemical systems proposed, so Materials Project cannot be queried")
-        seeds = _mp_seeds(query.chemical_systems, n, spec.domain)
+            raise RuntimeError(
+                "no chemical systems proposed, so Materials Project cannot be queried"
+            )
+        seeds = await _mp_seeds(query.chemical_systems, n, spec.domain, spec)
         where = (
             "near-hull phases retrieved from Materials Project in "
             f"{', '.join(query.chemical_systems[:6])}"
         )
+        if spec.domain == "mof_water":
+            where += (
+                " — note that Materials Project covers inorganic frameworks far better "
+                "than metal-organic ones, so this seed set is a weak sample of the real "
+                "MOF space and the campaign should be read accordingly"
+            )
     else:
         raise RuntimeError(
             f"no retrieval source is available for domain {spec.domain!r}; register a "

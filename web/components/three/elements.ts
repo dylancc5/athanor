@@ -70,21 +70,21 @@ export const ELEMENT_COLORS: Record<string, string> = {
   Xe: "#429eb0",
   Cs: "#57178f",
   Ba: "#00c900",
-  La: "#70d4ff",
-  Ce: "#ffffc7",
-  Pr: "#d9ffc7",
-  Nd: "#c7ffc7",
-  Pm: "#a3ffc7",
-  Sm: "#8fffc7",
-  Eu: "#61ffc7",
-  Gd: "#45ffc7",
-  Tb: "#30ffc7",
-  Dy: "#1fffc7",
-  Ho: "#00ff9c",
-  Er: "#00e675",
-  Tm: "#00d452",
-  Yb: "#00bf38",
-  Lu: "#00ab24",
+  La: "#7fe6ff",
+  Ce: "#6ad9fb",
+  Pr: "#57ccf7",
+  Nd: "#46bff3",
+  Pm: "#38b2ee",
+  Sm: "#2ca5e9",
+  Eu: "#2398e3",
+  Gd: "#1d8bdc",
+  Tb: "#197fd4",
+  Dy: "#1773cb",
+  Ho: "#1767c1",
+  Er: "#195bb6",
+  Tm: "#1d4faa",
+  Yb: "#22449d",
+  Lu: "#28398f",
   Hf: "#4dc2ff",
   Ta: "#4da6ff",
   W: "#2194d6",
@@ -111,6 +111,14 @@ export const ELEMENT_COLORS: Record<string, string> = {
   Am: "#545cf2",
   Cm: "#785ce3",
 };
+
+/**
+ * Documented deviation from Jmol: the lanthanides (La-Lu) are re-ramped from
+ * Jmol's near-identical greens to a cyan -> indigo ramp. Jmol's values put Er
+ * (#00e675) next to Cl (#1ff01f), which made the ErCl6 octahedra in Li3ErCl6
+ * unreadable, and put all fifteen lanthanides within a few percent of each
+ * other. Every other element keeps its standard CPK/Jmol colour.
+ */
 
 /** Cordero et al. (2008) covalent radii, angstroms. Bond inference only. */
 export const COVALENT_RADII: Record<string, number> = {

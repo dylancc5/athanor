@@ -25,8 +25,8 @@ export function verdictColor(v: string | null | undefined): string {
 export const CHROME = {
   axis: "#475569",
   axisBright: "#94a3b8",
-  grid: "#1e293b",
-  gridMinor: "#172033",
+  grid: "#28364c",
+  gridMinor: "#1b2638",
   label: "#cbd5e1",
   labelDim: "#64748b",
   edge: "#64748b",
@@ -52,12 +52,12 @@ export const TREE = {
   /** Vertical distance between rounds (world units). */
   levelHeight: 1.7,
   /** Radial splay added per level of depth. */
-  radialStep: 1.15,
+  radialStep: 1.75,
   /** Lateral spacing between siblings sharing a (branch, round) slot. */
-  siblingStep: 1.05,
+  siblingStep: 1.3,
   /** How far a child is pulled back toward its parent (0 = on top of it). */
   parentPull: 0.34,
-  nodeRadius: 0.3,
+  nodeRadius: 0.26,
 } as const;
 
 /** Golden angle: spreads branch directions without depending on branch count,

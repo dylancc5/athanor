@@ -6,14 +6,31 @@ What it reports, and where each number comes from:
   relaxation_drop          the same relaxation, energy released, per atom
   relaxation_displacement  the same relaxation, how far the furthest atom moved
   migration_barrier        vacancy-mediated CI-NEB (solid_electrolyte only)
-  energy_above_hull        Materials Project DFT, read from the database
+  energy_above_hull        distance above a hull built from MACE energies
+  energy_above_hull_dft    Materials Project DFT hull — retrieved candidates only
   band_gap                 Materials Project DFT (GGA) — a *proxy*, flagged
+
+Two hull numbers, on purpose. A candidate the Generator invented has no
+Materials Project record, so it can never have a DFT hull distance — and if
+that were the only route to the value, every invented candidate would be
+missing an objective and would silently vanish from the Pareto frontier. So
+`energy_above_hull` is computed for *every* candidate by rebuilding the hull of
+its chemical system from MACE energies: the competing phases' structures come
+from Materials Project, but their energies are recomputed with the same
+potential as the candidate's. That is standard practice for screening with a
+machine-learned potential, and it is a genuinely different quantity from MP's
+DFT hull distance — lower precision, same units — so it carries
+`source="mace-mp-0"`, a method string that says so, and a lower confidence.
+Where MP's real DFT value also exists it is reported *alongside*, as
+`energy_above_hull_dft`, because it is better data. The two are never mixed:
+MACE and DFT energies use different reference states, so subtracting one from
+the other would be meaningless.
 
 Nothing here is interpolated, estimated or filled in. A property that cannot be
 measured for a candidate is named in `ScoreResult.failed` with the reason and is
-simply absent from `measurements`. The commonest case is a perturbed candidate:
-it has no Materials Project entry, so it has no `energy_above_hull`, and that is
-reported as a gap rather than inherited from its parent.
+simply absent from `measurements`. `band_gap` is the honest remaining gap: it
+needs electronic structure, MACE is a force field, so an invented candidate has
+no band gap and none is fabricated.
 
 Note for the loop: a candidate can appear in `failed` *and* carry measurements.
 `failed` is per-property, keyed by candidate id, so treat it as "here is what is
@@ -23,8 +40,14 @@ missing", not "this candidate is dead".
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
+import os
+import tempfile
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -56,6 +79,129 @@ ENERGY_CONFIDENCE = 0.75
 BARRIER_CONFIDENCE = 0.6
 MP_DFT_CONFIDENCE = 0.95
 MP_GAP_CONFIDENCE = 0.6
+# A hull distance from MACE energies. The hull topology is usually right and
+# near-hull phases come out near the hull, but MLIP formation energies carry
+# tens of meV/atom of error and that error does not cancel between a candidate
+# and the phases it decomposes into. Well below MP's DFT 0.95.
+MACE_HULL_CONFIDENCE = 0.55
+
+HULL_CACHE_DIR = Path(
+    os.environ.get("ATHANOR_HULL_CACHE", mp.REPO_ROOT / "data" / "cache" / "mace_hull")
+)
+HULL_CACHE_SCHEMA = 1
+
+
+class HullUnavailable(RuntimeError):
+    """The hull for a chemical system could not be built. Never defaulted to 0."""
+
+
+@dataclass(frozen=True)
+class PhaseEnergy:
+    material_id: str
+    formula: str
+    composition: dict[str, float]
+    n_atoms: int
+    energy_per_atom: float
+
+
+@dataclass(frozen=True)
+class SystemHull:
+    """A convex hull for one chemical system, built entirely from MACE energies."""
+
+    elements: tuple[str, ...]
+    phases: tuple[PhaseEnergy, ...]
+    skipped_large: int
+    skipped_failed: int
+    fmax: float
+    steps: int
+    max_atoms: int
+    seconds: float
+
+    @property
+    def label(self) -> str:
+        return "-".join(self.elements)
+
+    def _diagram(self):
+        from pymatgen.analysis.phase_diagram import PhaseDiagram
+        from pymatgen.core import Composition
+        from pymatgen.entries.computed_entries import ComputedEntry
+
+        entries = [
+            ComputedEntry(
+                Composition(p.composition),
+                p.energy_per_atom * sum(p.composition.values()),
+                entry_id=p.material_id,
+            )
+            for p in self.phases
+        ]
+        return PhaseDiagram(entries), Composition
+
+    def e_above_hull(self, composition: dict[str, float], energy_per_atom: float) -> float:
+        """The candidate's distance above this hull, in eV/atom.
+
+        Negative is allowed and meaningful: it says the candidate is more stable
+        than anything Materials Project knows for this system, on MACE's energy
+        scale. Clamping it to zero would hide exactly the result a discovery
+        campaign is looking for.
+        """
+        from pymatgen.entries.computed_entries import ComputedEntry
+
+        diagram, Composition = self._diagram()
+        comp = Composition(composition)
+        entry = ComputedEntry(comp, energy_per_atom * comp.num_atoms)
+        _, e_above = diagram.get_decomp_and_e_above_hull(entry, allow_negative=True)
+        return float(e_above)
+
+    def method(self) -> str:
+        return (
+            f"convex hull of the {self.label} system rebuilt from MACE-MP-0 energies "
+            f"({len(self.phases)} Materials Project phases re-relaxed with MACE at fmax "
+            f"{self.fmax:.2f} eV/A); NOT a DFT hull distance"
+        )
+
+    def caveat(self) -> str:
+        bits = [
+            (
+                f"The candidate and all {len(self.phases)} competing phases are on one MACE "
+                f"energy scale, so this is comparable across candidates but is not MP's DFT "
+                f"hull distance and the two must not be compared directly."
+            )
+        ]
+        if self.skipped_large:
+            bits.append(
+                f"{self.skipped_large} phase(s) larger than {self.max_atoms} atoms were "
+                f"excluded as too costly to relax; if one of those was a hull vertex this "
+                f"distance is an underestimate."
+            )
+        if self.skipped_failed:
+            bits.append(f"{self.skipped_failed} phase(s) failed to relax and were excluded.")
+        return " ".join(bits)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "schema": HULL_CACHE_SCHEMA,
+            "elements": list(self.elements),
+            "phases": [asdict(p) for p in self.phases],
+            "skipped_large": self.skipped_large,
+            "skipped_failed": self.skipped_failed,
+            "fmax": self.fmax,
+            "steps": self.steps,
+            "max_atoms": self.max_atoms,
+            "seconds": self.seconds,
+        }
+
+    @classmethod
+    def from_json(cls, d: dict[str, Any]) -> SystemHull:
+        return cls(
+            elements=tuple(d["elements"]),
+            phases=tuple(PhaseEnergy(**p) for p in d["phases"]),
+            skipped_large=int(d["skipped_large"]),
+            skipped_failed=int(d["skipped_failed"]),
+            fmax=float(d["fmax"]),
+            steps=int(d["steps"]),
+            max_atoms=int(d["max_atoms"]),
+            seconds=float(d["seconds"]),
+        )
 
 
 def _finite(x: Any) -> float:
@@ -63,6 +209,159 @@ def _finite(x: Any) -> float:
     if not math.isfinite(v):
         raise ValueError(f"non-finite value from worker: {x!r}")
     return v
+
+
+class HullBuilder:
+    """Builds and caches one MACE convex hull per chemical system.
+
+    The hull is the expensive part — dozens of relaxations — and it is reused by
+    every candidate in that system and by every later round of the campaign, so
+    it is cached both in memory and on disk. The disk key includes the relaxation
+    settings, because a hull built at a different `fmax` is a different hull.
+    """
+
+    def __init__(self, runner, *, fmax: float = 0.05, steps: int = 120, max_atoms: int = 80):
+        self._runner = runner  # async (request, timeout) -> response
+        self.fmax = fmax
+        self.steps = steps
+        self.max_atoms = max_atoms
+        self._memory: dict[tuple[str, ...], SystemHull] = {}
+        self._locks: dict[tuple[str, ...], asyncio.Lock] = {}
+
+    def _path(self, elements: tuple[str, ...]) -> Path:
+        key = (
+            f"{'-'.join(elements)}__fmax{self.fmax:g}_steps{self.steps}"
+            f"_max{self.max_atoms}_v{HULL_CACHE_SCHEMA}"
+        )
+        return HULL_CACHE_DIR / f"{key}.json"
+
+    async def get(self, elements: set[str] | tuple[str, ...], *, timeout: float) -> SystemHull:
+        els = tuple(sorted(str(e) for e in elements))
+        if not els:
+            raise HullUnavailable("candidate has no elements")
+        if els in self._memory:
+            return self._memory[els]
+
+        # One build per system even if several candidates arrive together.
+        lock = self._locks.setdefault(els, asyncio.Lock())
+        async with lock:
+            if els in self._memory:
+                return self._memory[els]
+
+            path = self._path(els)
+            if path.exists():
+                try:
+                    data = json.loads(path.read_text())
+                    if data.get("schema") == HULL_CACHE_SCHEMA:
+                        hull = SystemHull.from_json(data)
+                        self._memory[els] = hull
+                        return hull
+                except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+                    log.warning("ignoring unreadable hull cache %s: %s", path, exc)
+
+            hull = await self._build(els, timeout=timeout)
+            self._memory[els] = hull
+            HULL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=str(HULL_CACHE_DIR), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(hull.to_json(), f, sort_keys=True)
+                os.replace(tmp, path)
+            except BaseException:
+                Path(tmp).unlink(missing_ok=True)
+                raise
+            return hull
+
+    async def _build(self, elements: tuple[str, ...], *, timeout: float) -> SystemHull:
+        started = time.monotonic()
+        try:
+            found = await mp.acompeting_phases(list(elements), max_atoms=self.max_atoms)
+        except Exception as exc:
+            raise HullUnavailable(
+                f"could not retrieve competing phases for {'-'.join(elements)}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        phases = found["phases"]
+        if not phases:
+            raise HullUnavailable(
+                f"Materials Project returned no phases for {'-'.join(elements)} with at most "
+                f"{self.max_atoms} atoms"
+            )
+
+        # One worker call for the whole batch: the model loads once, not N times.
+        response = await self._runner(
+            {
+                "op": "relax_many",
+                "structures": [
+                    {"label": p["material_id"], "atoms": p["structure"]} for p in phases
+                ],
+                "fmax": self.fmax,
+                "steps": self.steps,
+            },
+            timeout=timeout,
+        )
+
+        by_id = {p["material_id"]: p for p in phases}
+        energies: list[PhaseEnergy] = []
+        failed = 0
+        for item in response["results"]:
+            phase = by_id.get(item.get("label"))
+            if phase is None:
+                continue
+            if "error" in item:
+                failed += 1
+                log.warning(
+                    "hull phase %s (%s) failed to relax: %s",
+                    phase["material_id"],
+                    phase["formula_pretty"],
+                    item["error"],
+                )
+                continue
+            value = float(item["energy_per_atom"])
+            if not math.isfinite(value):
+                failed += 1
+                continue
+            energies.append(
+                PhaseEnergy(
+                    material_id=phase["material_id"],
+                    formula=phase["formula_pretty"],
+                    composition=phase["composition"],
+                    n_atoms=int(phase["n_sites"]),
+                    energy_per_atom=value,
+                )
+            )
+
+        # A hull is undefined without a reference for every element in the system.
+        covered = {el for p in energies for el, n in p.composition.items() if n > 0}
+        missing = set(elements) - covered
+        if missing:
+            raise HullUnavailable(
+                f"no usable phase containing {', '.join(sorted(missing))} in the "
+                f"{'-'.join(elements)} system, so its convex hull is undefined"
+            )
+
+        # Deterministic: sort by material id so a rebuild gives an identical hull.
+        energies.sort(key=lambda p: p.material_id)
+        return SystemHull(
+            elements=elements,
+            phases=tuple(energies),
+            skipped_large=int(found.get("skipped_large", 0)),
+            skipped_failed=failed,
+            fmax=self.fmax,
+            steps=self.steps,
+            max_atoms=self.max_atoms,
+            seconds=round(time.monotonic() - started, 2),
+        )
+
+
+def _phase_note(entry: mp.MPEntry) -> str:
+    """Whether the phase has been made. Three-way: a missing flag is not a 'no'."""
+    if entry.theoretical is False:
+        return "Experimentally reported phase."
+    if entry.theoretical is True:
+        return "Theoretical (computed-only) phase — never reported experimentally."
+    return "Materials Project does not record whether this phase has been made experimentally."
 
 
 def _same_composition(formula_a: str, formula_b: str) -> bool:
@@ -92,7 +391,8 @@ class AtomisticScorer:
         "relaxation_drop",
         "relaxation_displacement",
         "migration_barrier",
-        "energy_above_hull",
+        "energy_above_hull",  # MACE-derived, available for every candidate
+        "energy_above_hull_dft",  # Materials Project DFT, retrieved candidates only
         "band_gap",
     )
 
@@ -103,13 +403,18 @@ class AtomisticScorer:
         relax_steps: int = 120,
         neb_images: int = 9,
         neb_fmax: float = 0.05,
-        neb_steps: int = 200,
+        # 200 was not enough for Li3PS4 once the endpoints are MACE-relaxed
+        # (the band stalled at 0.275 eV still unconverged); 400 converges it.
+        neb_steps: int = 400,
         neb_min_cell_length: float = 8.0,
         neb_max_atoms: int = 220,
         relax_timeout: float = 1200.0,
         neb_timeout: float = 3000.0,
+        hull_timeout: float = 2400.0,
+        hull_max_atoms: int = 80,
         concurrency: int = 1,
         use_mp: bool = True,
+        use_mace_hull: bool = True,
     ) -> None:
         self.relax_fmax = relax_fmax
         self.relax_steps = relax_steps
@@ -120,10 +425,15 @@ class AtomisticScorer:
         self.neb_max_atoms = neb_max_atoms
         self.relax_timeout = relax_timeout
         self.neb_timeout = neb_timeout
+        self.hull_timeout = hull_timeout
         self.use_mp = use_mp
+        self.use_mace_hull = use_mace_hull
         # Each worker gets OMP_NUM_THREADS=8; running NEBs in parallel just
         # oversubscribes the CPU and makes every one of them slower.
         self._sem = asyncio.Semaphore(max(1, int(concurrency)))
+        self._hulls = HullBuilder(
+            self._worker, fmax=relax_fmax, steps=relax_steps, max_atoms=hull_max_atoms
+        )
 
     # ---------------------------------------------------------------- public
 
@@ -133,7 +443,7 @@ class AtomisticScorer:
             failures: list[str] = []
             try:
                 await self._score_one(candidate, spec, result, failures)
-            except Exception as exc:  # noqa: BLE001 — one bad candidate must not sink the batch
+            except Exception as exc:
                 log.exception("scoring %s failed", candidate.id)
                 failures.append(f"all properties: {type(exc).__name__}: {exc}")
             if failures:
@@ -163,7 +473,13 @@ class AtomisticScorer:
             failures.append(f"all properties: out of distribution — {pre.summary()}")
             return
 
+        # ---- Materials Project DFT numbers ------------------------------
+        # Recorded before the relaxation on purpose: these are database reads
+        # and are valid whatever MACE does next, so a worker crash must not
+        # throw away a hull energy we already hold.
         mp_entry = await self._mp_entry(candidate, atoms, failures)
+        if mp_entry is not None:
+            self._add_mp_measurements(candidate, mp_entry, result, failures)
 
         # ---- relaxation -------------------------------------------------
         try:
@@ -190,15 +506,26 @@ class AtomisticScorer:
         relax_note = relax_report.summary() if relax_report.reasons else None
         n_atoms = int(relax["n_atoms"])
 
+        # Honest context: an ML energy/atom means little on its own, so say how
+        # far it sits from the DFT value the model was actually fitted against.
+        # That reference has to be the raw GGA/GGA+U energy (what MPtrj
+        # contains), NOT the summary endpoint's `uncorrected_energy_per_atom`,
+        # which is the r2SCAN value on an entirely different scale. If MP has no
+        # GGA/GGA+U entry, the comparison is omitted rather than mislabelled.
         gap_note = None
-        if mp_entry is not None and mp_entry.uncorrected_energy_per_atom is not None:
-            # Honest context: an ML energy/atom means little on its own, so say
-            # how far it sits from the DFT value the model was fitted against.
-            delta = _finite(relax["energy_per_atom"]) - mp_entry.uncorrected_energy_per_atom
-            gap_note = (
-                f"MACE-MP-0 vs Materials Project uncorrected PBE for "
-                f"{mp_entry.material_id}: {delta:+.3f} eV/atom."
-            )
+        if mp_entry is not None:
+            try:
+                reference = await mp.agga_reference_energy_per_atom(mp_entry.material_id)
+            except Exception as exc:  # noqa: BLE001 — context only, never a measurement
+                log.warning("GGA reference lookup failed for %s: %s", mp_entry.material_id, exc)
+                reference = None
+            if reference is not None:
+                delta = _finite(relax["energy_per_atom"]) - reference
+                gap_note = (
+                    f"For scale: Materials Project's raw GGA/GGA+U energy for "
+                    f"{mp_entry.material_id} is {reference:.3f} eV/atom, so MACE-MP-0 is "
+                    f"{delta:+.3f} eV/atom from the DFT data it was trained on."
+                )
 
         self._add(
             result,
@@ -262,9 +589,8 @@ class AtomisticScorer:
             )
         )
 
-        # ---- Materials Project DFT numbers ------------------------------
-        if mp_entry is not None:
-            self._add_mp_measurements(candidate, mp_entry, result, failures)
+        # ---- MACE convex hull, for every candidate ----------------------
+        await self._mace_hull(candidate, atoms, relax, relax_ood, result, failures)
 
         # ---- migration barrier -----------------------------------------
         if candidate.domain == "solid_electrolyte":
@@ -272,6 +598,71 @@ class AtomisticScorer:
 
     def _add(self, result: ScoreResult, measurement: Measurement) -> None:
         result.measurements.append(measurement)
+
+    # ---- MACE-derived convex hull ---------------------------------------
+
+    async def _mace_hull(
+        self,
+        candidate: Candidate,
+        atoms: Atoms,
+        relax: dict[str, Any],
+        relax_ood: bool,
+        result: ScoreResult,
+        failures: list[str],
+    ) -> None:
+        """`energy_above_hull` for any candidate, invented or retrieved.
+
+        This is the measurement that lets a generated candidate reach the Pareto
+        frontier at all: `pareto.rank()` drops a candidate that is missing an
+        objective, and only a retrieved candidate can ever have a DFT hull
+        distance. Everything here — candidate and competing phases alike — is
+        MACE energy, so the comparison is internally consistent.
+        """
+        if not self.use_mace_hull:
+            failures.append("energy_above_hull: MACE hull construction disabled")
+            return
+
+        composition: dict[str, float] = {}
+        for symbol in atoms.get_chemical_symbols():
+            composition[str(symbol)] = composition.get(str(symbol), 0.0) + 1.0
+
+        try:
+            hull = await self._hulls.get(set(composition), timeout=self.hull_timeout)
+            value = hull.e_above_hull(composition, _finite(relax["energy_per_atom"]))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("MACE hull unavailable for %s: %s", candidate.id, exc)
+            failures.append(
+                f"energy_above_hull: could not build a MACE convex hull for this chemical "
+                f"system: {type(exc).__name__}: {exc}. Not estimated."
+            )
+            return
+
+        if not math.isfinite(value):
+            failures.append("energy_above_hull: MACE hull gave a non-finite distance")
+            return
+
+        note = hull.caveat()
+        if value < -0.001:
+            note = (
+                f"Negative: on MACE's energy scale this sits {abs(value):.3f} eV/atom *below* "
+                f"the hull of everything Materials Project knows for {hull.label}, i.e. it is "
+                f"predicted more stable than any known phase. Not clamped to zero. " + note
+            )
+        self._add(
+            result,
+            Measurement(
+                candidate_id=candidate.id,
+                property="energy_above_hull",
+                value=round(value, 4),
+                unit="eV/atom",
+                source=self.name,
+                method=hull.method(),
+                confidence=MACE_HULL_CONFIDENCE,
+                ood_flag=relax_ood,
+                is_proxy=False,
+                note=note,
+            ),
+        )
 
     async def _worker(self, request: dict[str, Any], *, timeout: float) -> dict[str, Any]:
         async with self._sem:
@@ -290,22 +681,27 @@ class AtomisticScorer:
         """
         prov = candidate.provenance
         if not self.use_mp:
-            failures.append("energy_above_hull, band_gap: Materials Project lookup disabled")
+            failures.append(
+                "energy_above_hull_dft, band_gap: Materials Project lookup disabled"
+            )
             return None
         if prov.source != "retrieval" or prov.database != mp.SOURCE or not prov.external_id:
             failures.append(
-                f"energy_above_hull, band_gap: unavailable — candidate is "
+                f"energy_above_hull_dft, band_gap: unavailable — candidate is "
                 f"{prov.source}"
                 + (f" from {prov.database}" if prov.database else " with no database entry")
-                + ", so it has no Materials Project convex-hull or band-structure "
-                "calculation. Not estimated."
+                + ", so there is no Materials Project DFT hull distance or band structure "
+                "for it. Neither is estimated. Its `energy_above_hull` is still measured, "
+                "from the MACE-rebuilt hull of its chemical system; `band_gap` genuinely "
+                "cannot be computed here, because that needs electronic structure and "
+                "MACE-MP-0 is a force field."
             )
             return None
         try:
             entry = await mp.aget_entry(prov.external_id)
         except Exception as exc:  # noqa: BLE001
             failures.append(
-                f"energy_above_hull, band_gap: Materials Project lookup of "
+                f"energy_above_hull_dft, band_gap: Materials Project lookup of "
                 f"{prov.external_id} failed: {type(exc).__name__}: {exc}"
             )
             return None
@@ -313,7 +709,7 @@ class AtomisticScorer:
         ours = candidate.formula or reduced_formula(atoms)
         if not _same_composition(ours, entry.formula_pretty):
             failures.append(
-                f"energy_above_hull, band_gap: {prov.external_id} is "
+                f"energy_above_hull_dft, band_gap: {prov.external_id} is "
                 f"{entry.formula_pretty} but this candidate is {ours} — the structure has "
                 f"been modified since retrieval, so the stored DFT values do not describe "
                 f"it. Not transferred."
@@ -330,23 +726,32 @@ class AtomisticScorer:
     ) -> None:
         if entry.energy_above_hull is None:
             failures.append(
-                f"energy_above_hull: {entry.material_id} has no hull energy in Materials "
+                f"energy_above_hull_dft: {entry.material_id} has no hull energy in Materials "
                 f"Project (no complete phase diagram for {entry.chemsys})"
             )
         else:
+            # Reported *alongside* the MACE hull, never instead of it. This is
+            # the better number where it exists, but it exists only for
+            # retrieved candidates, so it cannot be the Pareto objective.
             self._add(
                 result,
                 Measurement(
                     candidate_id=candidate.id,
-                    property="energy_above_hull",
+                    property="energy_above_hull_dft",
                     value=round(entry.energy_above_hull, 4),
                     unit="eV/atom",
                     source=mp.SOURCE,
-                    method=f"DFT (GGA/GGA+U) convex hull, Materials Project {entry.material_id}",
+                    method=(
+                        f"DFT convex hull from the Materials Project summary "
+                        f"({mp.MIXED_SCHEME} mixed scheme), {entry.material_id}"
+                    ),
                     confidence=MP_DFT_CONFIDENCE,
                     note=(
-                        f"Read from the database, not computed here. "
-                        f"{'Experimentally reported phase' if entry.theoretical is False else 'Theoretical (computed-only) phase'}."
+                        f"Read from the database, not computed here — real DFT, and more "
+                        f"reliable than the MACE hull distance reported as "
+                        f"`energy_above_hull`. The two are different quantities on different "
+                        f"energy scales and must not be compared value-for-value. "
+                        f"{_phase_note(entry)}"
                     ),
                 ),
             )
@@ -450,8 +855,9 @@ class AtomisticScorer:
         if not converged:
             note += (
                 f" The band did NOT converge to fmax {self.neb_fmax:.2f} eV/A in "
-                f"{self.neb_steps} steps — read this as a lower bound on the saddle, flagged "
-                f"out-of-distribution."
+                f"{self.neb_steps} steps, so this is whatever the band had reached and not a "
+                f"located saddle point: the true barrier may be either higher or lower. "
+                f"Flagged out-of-distribution."
             )
         if report.reasons:
             note += " " + report.summary()

@@ -1,0 +1,106 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e2]:
+    - banner [ref=f4e3]:
+      - generic [ref=f4e4]:
+        - heading "ATHANOR" [level=1] [ref=f4e5]
+        - generic [ref=f4e6]: autonomous research campaigns
+      - generic [ref=f4e7]:
+        - button "Solid-state Li conductor · fixture" [ref=f4e105]
+        - button "Solid-state Li conductor · fixture-neb" [ref=f4e106]
+        - button "Tour" [ref=f4e9]
+        - generic "replaying recorded campaigns from static files — no backend required" [ref=f4e10]: static replay
+    - main [ref=f4e11]:
+      - generic [ref=f4e12]:
+        - generic [ref=f4e13]:
+          - generic [ref=f4e14]:
+            - button "Play" [ref=f4e15]
+            - button "Prev" [ref=f4e16]
+            - button "Next" [ref=f4e17]
+            - button "Restart" [ref=f4e18]
+            - button "0.5x" [ref=f4e20]
+            - button "1x" [ref=f4e21]
+            - button "2x" [ref=f4e22]
+            - button "4x" [ref=f4e23]
+            - button "Verdict" [ref=f4e107]
+            - button "End" [ref=f4e25]
+            - generic [ref=f4e26]:
+              - generic [ref=f4e27]: 1/46
+              - generic [ref=f4e28]: 0:00
+          - generic [ref=f4e29]:
+            - button "spec — event 2" [ref=f4e108]
+            - button "round — event 3" [ref=f4e109]
+            - button "hypothesis — event 4" [ref=f4e110]
+            - button "skeptic review — event 9" [ref=f4e111]
+            - button "pareto — event 37" [ref=f4e112]
+            - 'button "verdict: refuted — event 38" [ref=f4e113]'
+            - button "controller — event 43" [ref=f4e114]
+            - button "proposal — event 45" [ref=f4e115]
+            - button "complete — event 46" [ref=f4e116]
+            - slider "Campaign timeline" [ref=f4e30] [cursor=pointer]: "1"
+          - generic [ref=f4e31]: campaign.started
+        - generic [ref=f4e33]:
+          - generic [ref=f4e34]:
+            - generic [ref=f4e35]:
+              - generic [ref=f4e37]:
+                - heading "Research goal" [level=2] [ref=f4e38]
+                - generic [ref=f4e39]: intake
+              - generic [ref=f4e40]:
+                - generic [ref=f4e41]:
+                  - textbox "Describe what you want found, in a sentence. e.g. a solid electrolyte with a low Li migration barrier that survives a lithium metal anode." [ref=f4e42]
+                  - generic [ref=f4e43]:
+                    - generic [ref=f4e44]: Cmd+Enter to run
+                    - button "Run campaign" [disabled] [ref=f4e45]
+                - generic [ref=f4e46]:
+                  - generic [ref=f4e47]: Awaiting intake
+                  - paragraph [ref=f4e48]: The goal is parsed into objectives with units and directions, plus hard constraints, before any compute is spent.
+            - generic [ref=f4e49]:
+              - generic [ref=f4e51]:
+                - heading "Compute ledger" [level=2] [ref=f4e52]
+                - generic [ref=f4e53]: provisional
+              - paragraph [ref=f4e56]: Nothing has been spent yet.
+          - generic [ref=f4e57]:
+            - generic [ref=f4e59]:
+              - generic [ref=f4e61]:
+                - heading "Hypothesis board" [level=2] [ref=f4e62]
+                - generic [ref=f4e63]: 0 proposed
+              - paragraph [ref=f4e66]: The strategist has not proposed a hypothesis yet. Each one arrives with a prediction and the condition that would kill it.
+            - generic [ref=f4e68]:
+              - heading "Measurements" [level=2] [ref=f4e71]
+              - paragraph [ref=f4e74]: No measurements yet. Each one records its source, its method, and whether it is a proxy or an extrapolation.
+            - generic [ref=f4e75]:
+              - heading "Experimental proposal" [level=2] [ref=f4e78]
+              - paragraph [ref=f4e81]: "The campaign closes with a proposal a bench scientist could actually run: a synthesis route, a validation protocol, and the results that would prove it wrong."
+          - generic [ref=f4e82]:
+            - generic [ref=f4e117]:
+              - generic [ref=f4e119]:
+                - heading "Viewer" [level=2] [ref=f4e120]
+                - generic [ref=f4e121]: Relaxed unit cell, ball-and-stick
+              - generic [ref=f4e122]:
+                - generic [ref=f4e123]:
+                  - button "Structure" [disabled] [ref=f4e124]
+                  - button "Migration path" [disabled] [ref=f4e125]
+                  - button "Void surface" [disabled] [ref=f4e126]
+                  - button "Chemical space" [disabled] [ref=f4e127]
+                  - button "Pareto surface" [disabled] [ref=f4e128]
+                  - button "Hypothesis tree" [disabled] [ref=f4e129]
+                - generic [ref=f4e130]:
+                  - generic:
+                    - paragraph: No data for this view yet. Views unlock as the campaign produces the artifacts behind them.
+            - generic [ref=f4e89]:
+              - heading "Pareto frontier" [level=2] [ref=f4e92]
+              - paragraph [ref=f4e95]: Candidates appear here once they have been scored on two objectives. Nothing is ranked until the measurements exist.
+            - generic [ref=f4e97]:
+              - heading "Lab notebook" [level=2] [ref=f4e100]
+              - paragraph [ref=f4e103]: Every agent writes here as it reasons. The notebook is append-only, so the record of a wrong turn survives the turn.
+    - generic [ref=f4e136]:
+      - generic [ref=f4e137]:
+        - generic [ref=f4e138]:
+          - generic [ref=f4e139]: Guided tour
+          - generic [ref=f4e140]: 1/14
+        - heading "A goal, in one sentence" [level=3] [ref=f4e141]
+        - paragraph [ref=f4e142]: "A researcher states what they want found in plain language: \"Find a solid-state lithium electrolyte with a low Li migration barrier that stays stable against a lithium metal anode.\" Nothing else is specified — not the candidates, not the properties, not how many rounds it will take."
+      - generic [ref=f4e143]:
+        - button "Skip" [ref=f4e144]
+        - button "Exit" [ref=f4e145]
+  - button "Open Next.js Dev Tools" [ref=f4e151] [cursor=pointer]
+  - alert [ref=f4e104]

@@ -18,7 +18,13 @@ from pydantic import BaseModel, Field
 
 from ..contracts import Heuristic, Hypothesis, Measurement, NotebookView, Verdict
 from ..llm import LLM
-from .base import HONESTY, Emit, render_measurements, render_notebook, reason_then_format
+from .base import (
+    HONESTY,
+    Emit,
+    reason_then_format,
+    render_measurements,
+    render_notebook,
+)
 
 SYSTEM = (
     HONESTY

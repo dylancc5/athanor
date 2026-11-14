@@ -57,8 +57,23 @@ class EventLog:
         return event
 
     def emit_artifact(self, artifact: Artifact, payload: dict[str, Any]) -> Event:
-        """Write the heavy payload to its sidecar file, then log the descriptor."""
-        (self.dir / artifact.uri).write_text(json.dumps(payload, separators=(",", ":")))
+        """Write the heavy payload to its sidecar file, then log the descriptor.
+
+        `allow_nan=False` is deliberate and load-bearing: Python happily writes
+        a bare `NaN`, which is not valid JSON and which no browser can parse, so
+        the artifact would silently break the viewer at demo time. A non-finite
+        value here means a calculation diverged, and that is a real failure —
+        raising lets the campaign record it rather than shipping a broken file.
+        """
+        try:
+            text = json.dumps(payload, separators=(",", ":"), allow_nan=False)
+        except ValueError as exc:
+            raise ValueError(
+                f"artifact {artifact.id} ({artifact.kind}) contains a non-finite "
+                f"value and cannot be serialized as valid JSON: {exc}. "
+                f"The calculation that produced it most likely diverged."
+            ) from exc
+        (self.dir / artifact.uri).write_text(text)
         return self.emit(ArtifactCreated(artifact=artifact))
 
     def close(self) -> None:

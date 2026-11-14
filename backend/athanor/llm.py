@@ -118,6 +118,15 @@ class LLM:
             load_env()
             # Retries are ours (below) so that a stream can decide for itself
             # whether a retry would duplicate already-emitted deltas.
+            #
+            # The SDK's default timeout is deliberately left alone. A short
+            # per-read budget looks like a good stall guard and is a trap here:
+            # thinking is always on and `display` defaults to omitted, so a
+            # high-effort call sends nothing at all while it reasons — a
+            # measured 72.5 s of silence before the closing proposal's first
+            # token in a real run — and a non-streaming call sends nothing
+            # until it is finished. Either would be killed mid-flight and
+            # retried, at full cost, for being slow rather than broken.
             client = anthropic.AsyncAnthropic(max_retries=0)
         self.client = client
         self.on_usage = on_usage
@@ -196,7 +205,7 @@ class LLM:
                     messages=[{"role": "user", "content": prompt}],
                     output_config=output_config,
                 )
-            except Exception as exc:  # noqa: BLE001 — classified immediately
+            except Exception as exc:
                 last = exc
                 if not self._retryable(exc) or attempt == self.max_attempts - 1:
                     raise
@@ -254,7 +263,7 @@ class LLM:
                 return
             except (LLMError, LLMRefusal):
                 raise
-            except Exception as exc:  # noqa: BLE001 — classified immediately
+            except Exception as exc:
                 if emitted or not self._retryable(exc) or attempt == self.max_attempts - 1:
                     raise
                 log.warning("retrying stream on %s after %s", model, type(exc).__name__)

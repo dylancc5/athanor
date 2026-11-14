@@ -40,8 +40,10 @@ export interface CampaignSource {
   listCampaigns: () => Promise<CampaignSummary[]>;
   /** Whole recorded log at once, or null when it can only be streamed. */
   fetchLog: (campaignId: string) => Promise<Event[] | null>;
-  /** Server-paced stream, or null when this source has none. */
+  /** Server-paced replay of a recorded campaign, or null when unsupported. */
   subscribe: ((campaignId: string, h: StreamHandlers) => StreamHandle) | null;
+  /** Live stream of a campaign that is running right now. */
+  subscribeLive: ((campaignId: string, h: StreamHandlers) => StreamHandle) | null;
   loadArtifact: (campaignId: string, artifact: Artifact) => Promise<unknown>;
   /** POST a new campaign. Rejects with `PublicDemoError` on the public build. */
   startCampaign: (goal: string) => Promise<{ campaign_id: string }>;
@@ -125,6 +127,7 @@ export function staticSource(): CampaignSource {
       return parseJsonl(await res.text());
     },
     subscribe: null,
+    subscribeLive: null,
     async loadArtifact(campaignId, artifact) {
       const res = await fetch(`/campaigns/${campaignId}/${artifact.uri}`, {
         cache: "force-cache",
@@ -209,6 +212,12 @@ export function apiSource(base = API_BASE): CampaignSource {
         h,
       );
     },
+    subscribeLive(campaignId, h) {
+      return sseSubscribe(
+        `${base}/api/campaigns/${encodeURIComponent(campaignId)}/events`,
+        h,
+      );
+    },
     async loadArtifact(campaignId, artifact) {
       const res = await fetch(
         `${base}/api/campaigns/${encodeURIComponent(campaignId)}/artifacts/${encodeURIComponent(artifact.id)}`,
@@ -234,11 +243,25 @@ export function apiSource(base = API_BASE): CampaignSource {
 // --------------------------------------------------------------------------
 
 /**
+ * Should we even look for a backend? On the public deployment there is none,
+ * and a https page requesting http://localhost:8000 can trip Chrome's
+ * local-network-access prompt — which judges would see. So probe only when an
+ * API base was configured explicitly, or when we are running on localhost.
+ */
+export function shouldProbeApi(): boolean {
+  if (process.env.NEXT_PUBLIC_ATHANOR_API) return true;
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+}
+
+/**
  * Try the API with a short timeout; fall back to static on anything odd.
  * On a static host a same-origin `/api/...` can return the 404 HTML page, so
  * a successful parse is required, not just a 200.
  */
 export async function detectSource(timeoutMs = 1500): Promise<CampaignSource> {
+  if (!shouldProbeApi()) return staticSource();
   const api = apiSource();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

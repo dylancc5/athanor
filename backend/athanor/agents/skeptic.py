@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from ..contracts import Candidate, NotebookView, Veto
 from ..llm import LLM
-from .base import HONESTY, Emit, render_candidate, render_notebook, reason_then_format
+from .base import HONESTY, Emit, reason_then_format, render_candidate, render_notebook
 
 SYSTEM = (
     HONESTY

@@ -1,0 +1,70 @@
+- generic [active] [ref=f15e1]:
+  - generic [ref=f15e2]:
+    - banner [ref=f15e3]:
+      - generic [ref=f15e4]:
+        - heading "ATHANOR" [level=1] [ref=f15e5]
+        - generic [ref=f15e6]: autonomous research campaigns
+      - generic [ref=f15e7]:
+        - button "Tour" [ref=f15e9]
+        - generic "replaying recorded campaigns from static files — no backend required" [ref=f15e10]: offline
+    - main [ref=f15e11]:
+      - generic [ref=f15e12]:
+        - generic [ref=f15e13]:
+          - generic [ref=f15e14]:
+            - button "Play" [ref=f15e15]
+            - button "Prev" [disabled] [ref=f15e16]
+            - button "Next" [disabled] [ref=f15e17]
+            - button "Restart" [ref=f15e18]
+            - button "0.5x" [ref=f15e20]
+            - button "1x" [ref=f15e21]
+            - button "2x" [ref=f15e22]
+            - button "4x" [ref=f15e23]
+            - button "End" [ref=f15e25]
+            - generic [ref=f15e26]:
+              - generic [ref=f15e27]: 0/0
+              - generic [ref=f15e28]: 0:00
+          - slider "Campaign timeline" [ref=f15e30] [cursor=pointer]: "0"
+          - generic [ref=f15e31]: start of campaign
+        - generic [ref=f15e33]:
+          - generic [ref=f15e34]:
+            - generic [ref=f15e35]:
+              - generic [ref=f15e37]:
+                - heading "Research goal" [level=2] [ref=f15e38]
+                - generic [ref=f15e39]: intake
+              - generic [ref=f15e40]:
+                - generic [ref=f15e41]:
+                  - textbox "Describe what you want found, in a sentence. e.g. a solid electrolyte with a low Li migration barrier that survives a lithium metal anode." [ref=f15e42]
+                  - generic [ref=f15e43]:
+                    - generic [ref=f15e44]: Cmd+Enter to run
+                    - button "Run campaign" [disabled] [ref=f15e45]
+                - generic [ref=f15e46]:
+                  - generic [ref=f15e47]: Awaiting intake
+                  - paragraph [ref=f15e48]: The goal is parsed into objectives with units and directions, plus hard constraints, before any compute is spent.
+            - generic [ref=f15e49]:
+              - generic [ref=f15e51]:
+                - heading "Compute ledger" [level=2] [ref=f15e52]
+                - generic [ref=f15e53]: provisional
+              - paragraph [ref=f15e56]: Nothing has been spent yet.
+          - generic [ref=f15e57]:
+            - generic [ref=f15e59]:
+              - generic [ref=f15e61]:
+                - heading "Hypothesis board" [level=2] [ref=f15e62]
+                - generic [ref=f15e63]: 0 proposed
+              - paragraph [ref=f15e66]: The strategist has not proposed a hypothesis yet. Each one arrives with a prediction and the condition that would kill it.
+            - generic [ref=f15e68]:
+              - heading "Measurements" [level=2] [ref=f15e71]
+              - paragraph [ref=f15e74]: No measurements yet. Each one records its source, its method, and whether it is a proxy or an extrapolation.
+            - generic [ref=f15e75]:
+              - heading "Experimental proposal" [level=2] [ref=f15e78]
+              - paragraph [ref=f15e81]: "The campaign closes with a proposal a bench scientist could actually run: a synthesis route, a validation protocol, and the results that would prove it wrong."
+          - generic [ref=f15e82]:
+            - generic [ref=f15e84]:
+              - heading "Viewer" [level=2] [ref=f15e86]
+              - generic [ref=f15e87]: initializing renderer
+            - generic [ref=f15e89]:
+              - heading "Pareto frontier" [level=2] [ref=f15e92]
+              - paragraph [ref=f15e95]: Candidates appear here once they have been scored on two objectives. Nothing is ranked until the measurements exist.
+            - generic [ref=f15e97]:
+              - heading "Lab notebook" [level=2] [ref=f15e100]
+              - paragraph [ref=f15e103]: Every agent writes here as it reasons. The notebook is append-only, so the record of a wrong turn survives the turn.
+  - alert [ref=f15e104]

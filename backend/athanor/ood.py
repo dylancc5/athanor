@@ -112,29 +112,55 @@ def _covalent_sum(zi: int, zj: int) -> float:
     return float(covalent_radii[zi] + covalent_radii[zj])
 
 
-def _nearest_neighbours(atoms: Atoms) -> tuple[np.ndarray, np.ndarray]:
-    """For each atom: its shortest distance to any other atom, and that atom's index.
+def _pairs(atoms: Atoms) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Every (i, j, distance) pair within the model's cutoff.
 
-    Minimum-image convention when periodic, so a short contact across a cell
-    boundary is not missed.
+    Uses ASE's neighbour list rather than a distance matrix, which matters for
+    two reasons. A periodic atom has neighbours that are *images of itself* —
+    a one-site bcc cell is perfectly ordinary, and `get_all_distances` would
+    report it as having no neighbours at all. And a minimum-image distance
+    matrix misses the second-shell contacts that can be the tightest relative
+    to their covalent radii.
     """
-    n = len(atoms)
-    if n < 2:
-        return np.array([]), np.array([], dtype=int)
-    if n <= MAX_PAIRWISE_ATOMS:
-        d = atoms.get_all_distances(mic=bool(np.any(atoms.pbc)))
-        np.fill_diagonal(d, np.inf)
-        return d.min(axis=1), d.argmin(axis=1)
-
     from ase.neighborlist import neighbor_list
 
-    i, j, dist = neighbor_list("ijd", atoms, ISOLATION_CUTOFF_A)
+    i, j, d = neighbor_list("ijd", atoms, ISOLATION_CUTOFF_A, self_interaction=False)
+    return np.asarray(i, dtype=int), np.asarray(j, dtype=int), np.asarray(d, dtype=float)
+
+
+def _min_contact(atoms: Atoms) -> tuple[float, int, int, float, float]:
+    """The tightest contact in the cell as a fraction of the covalent-radius sum.
+
+    Minimised over *all* pairs, not each atom's nearest neighbour: a slightly
+    longer contact between two large atoms can be the more unphysical one.
+    Returns (fraction, i, j, distance, covalent_sum); fraction is inf if there
+    is no pair at all.
+    """
+    i, j, d = _pairs(atoms)
+    if d.size == 0:
+        return float("inf"), -1, -1, float("inf"), 0.0
+    numbers = atoms.get_atomic_numbers()
+    sums = np.array([_covalent_sum(int(numbers[a]), int(numbers[b])) for a, b in zip(i, j)])
+    fractions = np.where(sums > 0, d / np.where(sums > 0, sums, 1.0), np.inf)
+    k = int(np.argmin(fractions))
+    return float(fractions[k]), int(i[k]), int(j[k]), float(d[k]), float(sums[k])
+
+
+def _loneliest(atoms: Atoms) -> tuple[int, float, int]:
+    """The atom furthest from any neighbour: (index, distance, neighbour index).
+
+    An atom with no neighbour inside the cutoff gets `inf`, because that is
+    exactly the pathology — nothing is within the model's receptive field.
+    """
+    i, j, d = _pairs(atoms)
+    n = len(atoms)
     best = np.full(n, np.inf)
     who = np.full(n, -1, dtype=int)
-    for a, b, dd in zip(i, j, dist, strict=True):
+    for a, b, dd in zip(i, j, d):
         if dd < best[a]:
             best[a], who[a] = dd, b
-    return best, who
+    idx = int(np.argmax(best))
+    return idx, float(best[idx]), int(who[idx])
 
 
 # --------------------------------------------------------------------------
@@ -171,77 +197,55 @@ class MaceMPDetector:
                 f"at all — any energy it returns is meaningless."
             )
 
-        if len(atoms) < 2:
-            reasons.append(
-                "Single-atom input: geometry checks do not apply, and a lone atom has no "
-                "neighbours inside the model's 6.0 A cutoff."
+        # (2) close contacts, over every pair inside the cutoff
+        frac, ci, cj, cdist, csum = _min_contact(atoms)
+        signals["min_contact_fraction"] = round(frac, 4) if np.isfinite(frac) else -1.0
+        if np.isfinite(frac) and frac < CLOSE_CONTACT_WARN:
+            detail = (
+                f"{symbols[ci]}-{symbols[cj]} contact of {cdist:.2f} A is {frac:.2f}x the "
+                f"covalent-radius sum ({csum:.2f} A)"
             )
-            severities.append(1.0)
-            hard = True
-        else:
-            nn, who = _nearest_neighbours(atoms)
-            numbers = atoms.get_atomic_numbers()
-
-            # (2) close contacts
-            fractions = np.array(
-                [
-                    nn[i] / _covalent_sum(int(numbers[i]), int(numbers[who[i]]))
-                    if np.isfinite(nn[i])
-                    else np.inf
-                    for i in range(len(atoms))
-                ]
-            )
-            worst = int(np.argmin(fractions))
-            frac = float(fractions[worst])
-            signals["min_contact_fraction"] = round(frac, 4) if np.isfinite(frac) else -1.0
-            if np.isfinite(frac) and frac < CLOSE_CONTACT_WARN:
-                pair = f"{symbols[worst]}-{symbols[int(who[worst])]}"
-                csum = _covalent_sum(int(numbers[worst]), int(numbers[int(who[worst])]))
-                detail = (
-                    f"{pair} contact of {nn[worst]:.2f} A is {frac:.2f}x the covalent-radius "
-                    f"sum ({csum:.2f} A)"
-                )
-                if frac < CLOSE_CONTACT_HARD:
-                    hard = True
-                    severities.append(1.0)
-                    reasons.append(
-                        f"{detail}. Below {CLOSE_CONTACT_HARD:.2f}x no relaxed crystal in "
-                        f"MACE-MP-0's training data exists; the model is extrapolating into "
-                        f"a repulsive wall it never saw."
-                    )
-                else:
-                    severities.append(
-                        0.6 * _ramp(-frac, -CLOSE_CONTACT_WARN, -CLOSE_CONTACT_HARD)
-                    )
-                    reasons.append(
-                        f"{detail}, short of the {CLOSE_CONTACT_WARN:.2f}x seen in relaxed "
-                        f"structures — strained, though still in a plausible range."
-                    )
-
-            # (3) isolated atoms
-            far = float(np.max(nn[np.isfinite(nn)])) if np.any(np.isfinite(nn)) else 0.0
-            signals["max_nn_distance_A"] = round(far, 3)
-            idx = int(np.argmax(np.where(np.isfinite(nn), nn, -np.inf)))
-            csum = (
-                _covalent_sum(int(numbers[idx]), int(numbers[int(who[idx])]))
-                if who[idx] >= 0
-                else 1.0
-            )
-            if far > ISOLATION_CUTOFF_A:
+            if frac < CLOSE_CONTACT_HARD:
                 hard = True
                 severities.append(1.0)
                 reasons.append(
-                    f"{symbols[idx]} (atom {idx}) has no neighbour within {far:.1f} A, beyond "
-                    f"MACE-MP-0's {ISOLATION_CUTOFF_A:.1f} A cutoff — it is invisible to every "
-                    f"other atom, so its energy contribution is a free-atom reference, not "
-                    f"chemistry."
+                    f"{detail}. Below {CLOSE_CONTACT_HARD:.2f}x no relaxed crystal in "
+                    f"MACE-MP-0's training data exists; the model is extrapolating into "
+                    f"a repulsive wall it never saw."
                 )
-            elif far > ISOLATION_WARN_A and far > ISOLATION_WARN_FACTOR * csum:
+            else:
+                severities.append(0.6 * _ramp(-frac, -CLOSE_CONTACT_WARN, -CLOSE_CONTACT_HARD))
+                reasons.append(
+                    f"{detail}, short of the {CLOSE_CONTACT_WARN:.2f}x seen in relaxed "
+                    f"structures — strained, though still in a plausible range."
+                )
+
+        # (3) isolated atoms. A periodic one-site cell is fine: its neighbours
+        # are its own images, which `_pairs` counts.
+        idx, far, who = _loneliest(atoms)
+        signals["max_nn_distance_A"] = round(far, 3) if np.isfinite(far) else -1.0
+        if not np.isfinite(far):
+            hard = True
+            severities.append(1.0)
+            reasons.append(
+                f"{symbols[idx]} (atom {idx}) has no neighbour at all within MACE-MP-0's "
+                f"{ISOLATION_CUTOFF_A:.1f} A cutoff — it is invisible to every other atom, so "
+                f"its energy contribution is a free-atom reference, not chemistry."
+            )
+        else:
+            neighbour_sum = (
+                _covalent_sum(
+                    int(atoms.get_atomic_numbers()[idx]), int(atoms.get_atomic_numbers()[who])
+                )
+                if who >= 0
+                else 1.0
+            )
+            if far > ISOLATION_WARN_A and far > ISOLATION_WARN_FACTOR * neighbour_sum:
                 severities.append(0.75)
                 reasons.append(
                     f"{symbols[idx]} (atom {idx}) sits {far:.2f} A from its nearest neighbour, "
-                    f"{far / csum:.1f}x the covalent-radius sum — far looser than the packed "
-                    f"crystals MACE-MP-0 was trained on."
+                    f"{far / neighbour_sum:.1f}x the covalent-radius sum — far looser than the "
+                    f"packed crystals MACE-MP-0 was trained on."
                 )
 
         score = max(severities) if severities else 0.0

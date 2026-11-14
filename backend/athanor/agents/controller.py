@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from ..contracts import ControllerDecision, Hypothesis, NotebookView, Verdict
 from ..llm import LLM
-from .base import HONESTY, Emit, render_notebook, reason_then_format
+from .base import HONESTY, Emit, reason_then_format, render_notebook
 
 SYSTEM = (
     HONESTY

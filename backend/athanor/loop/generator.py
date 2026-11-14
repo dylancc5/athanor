@@ -127,7 +127,7 @@ def select_informative(
     while remaining and len(chosen) < k:
         anchors = reference + [vectors[c.id] for c in chosen]
 
-        def spread(cand: Candidate) -> tuple[float, str]:
+        def spread(cand: Candidate, anchors: list = anchors) -> tuple[float, str]:
             v = vectors[cand.id]
             if not v or not anchors:
                 return (0.0, cand.id)
@@ -169,7 +169,7 @@ def apply_substitution(
     if not indices:
         raise ValueError(f"{parent.id} contains no {element_out} to substitute")
     fraction = min(max(fraction, 0.0), 1.0)
-    count = max(1, int(round(fraction * len(indices))))
+    count = max(1, round(fraction * len(indices)))
     count = min(count, len(indices))
     for i in indices[:count]:
         symbols[i] = element_in
@@ -242,28 +242,39 @@ class ClaudeGenerator:
     ) -> list[Candidate]:
         n = hypothesis.batch_plan.n_candidates
         entry_id = f"n-{hypothesis.id}-generator"
+        first_round = not notebook.candidates
 
-        if not notebook.candidates:
-            seeds, where = await retrieve_seeds(self.llm, spec, n)
-            for cand in seeds:
-                cand.hypothesis_id = hypothesis.id
-            self._note(
-                entry_id,
-                "Candidate generation — retrieval",
-                f"Seeded the campaign with {len(seeds)} candidate(s): {where}. "
-                f"Structures come from the database as retrieved; nothing here was "
-                f"written by a language model.",
-            )
-            return seeds
+        # Retrieval runs every round, not just the first. A hypothesis whose
+        # falsification criterion names a material the campaign has not seen
+        # can only be tested if that material can still enter the batch;
+        # restricting retrieval to round 1 makes every such hypothesis
+        # inconclusive by construction, and makes a learned heuristic like
+        # "put LGPS in the batch explicitly" impossible to act on.
+        retrieved: list[Candidate] = []
+        where = ""
+        try:
+            retrieved, where = await retrieve_seeds(self.llm, spec, n, hypothesis)
+        except Exception as exc:  # perturbation may still carry a later round
+            log.info("retrieval produced nothing this round: %s", exc)
+            if first_round:
+                raise
 
-        proposals, commentary = await self._perturb(spec, hypothesis, notebook)
+        known = {c.structure.strip() for c in notebook.candidates.values()}
+        retrieved = [c for c in retrieved if c.structure.strip() not in known]
+
+        perturbed: list[Candidate] = []
+        commentary = ""
+        if not first_round:
+            perturbed, commentary = await self._perturb(spec, hypothesis, notebook)
+
+        proposals = retrieved + perturbed
         if not proposals:
             self._note(
                 entry_id,
-                "Candidate generation — no viable edits",
-                "Every proposed edit failed to apply to a real parent structure, so "
-                "this round has no new candidates. No structure was invented to fill "
-                "the gap.",
+                "Candidate generation — nothing viable",
+                "Retrieval returned nothing new and every proposed edit failed to "
+                "apply to a real parent structure, so this round has no new "
+                "candidates. No structure was invented to fill the gap.",
             )
             return []
 
@@ -273,14 +284,30 @@ class ClaudeGenerator:
         for cand in chosen:
             cand.hypothesis_id = hypothesis.id
 
-        text = (
-            f"{commentary.strip()} Applied {len(proposals)} edit(s) to retrieved parent "
-            f"structures with ASE; the parent and the exact operation are recorded on "
-            f"each candidate's provenance."
-        )
+        if first_round:
+            heading = "Candidate generation — retrieval"
+            text = (
+                f"Seeded the campaign with {len(chosen)} candidate(s): {where}. "
+                f"The query was written against this round's hypothesis, so the batch "
+                f"can reach the materials its falsification criterion names. "
+                f"Structures come from the database as retrieved; nothing here was "
+                f"written by a language model."
+            )
+        else:
+            heading = "Candidate generation — retrieval and perturbation"
+            parts = []
+            if retrieved:
+                parts.append(f"Retrieved {len(retrieved)} further candidate(s): {where}.")
+            if perturbed:
+                parts.append(
+                    f"{commentary.strip()} Applied {len(perturbed)} edit(s) to retrieved "
+                    f"parent structures with ASE; the parent and the exact operation are "
+                    f"recorded on each candidate's provenance."
+                )
+            text = " ".join(parts)
         if selection_note:
             text += " " + selection_note
-        self._note(entry_id, "Candidate generation — perturbation", text)
+        self._note(entry_id, heading, text)
         return chosen
 
     async def _perturb(

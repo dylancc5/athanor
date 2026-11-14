@@ -1,16 +1,9 @@
-"""The campaign loop: orchestrator, generator, router, and notebook view."""
+"""The campaign loop: orchestrator, generator, router, seeds and notebook view.
 
-from .campaign import Campaign, CampaignConfig
-from .generator import ClaudeGenerator
-from .notebook import build_notebook
-from .router import Router, all_scorers, property_vocabulary
+Deliberately empty of imports. `agents.intake` needs the property vocabulary
+from `loop.router`, while `loop.campaign` needs the agents — re-exporting either
+here would close that circle at import time. Import the submodule you want:
 
-__all__ = [
-    "Campaign",
-    "CampaignConfig",
-    "ClaudeGenerator",
-    "Router",
-    "all_scorers",
-    "build_notebook",
-    "property_vocabulary",
-]
+    from athanor.loop.campaign import Campaign
+    from athanor.loop.notebook import build_notebook
+"""

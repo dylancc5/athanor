@@ -5,7 +5,7 @@
  *   cd web && npx jiti lib/campaign-state.test.ts
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Event } from "./contracts";
 import {
@@ -41,6 +41,22 @@ function eq(name: string, a: unknown, b: unknown) {
 function trunc(s: string | undefined) {
   if (!s) return String(s);
   return s.length > 300 ? `${s.slice(0, 300)}…` : s;
+}
+
+/** Discover the recorded campaigns rather than hardcoding ids — they get
+ *  renamed and re-recorded, and a hardcoded id would silently stop testing. */
+function discoverCampaigns(): string[] {
+  for (const base of [
+    resolve(process.cwd(), "../campaigns"),
+    resolve(process.cwd(), "public/campaigns"),
+  ]) {
+    if (!existsSync(base)) continue;
+    const ids = readdirSync(base).filter((d) =>
+      existsSync(resolve(base, d, "events.jsonl")),
+    );
+    if (ids.length > 0) return ids.sort();
+  }
+  throw new Error("no recorded campaigns found");
 }
 
 function loadLog(id: string): Event[] {
@@ -176,8 +192,9 @@ function run(id: string) {
   );
 }
 
-run("fixture");
-run("fixture-neb");
+const campaigns = discoverCampaigns();
+console.log(`discovered campaigns: ${campaigns.join(", ")}`);
+for (const id of campaigns) run(id);
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

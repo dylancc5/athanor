@@ -32,7 +32,7 @@ from ..contracts import (
     NotebookView,
     Spec,
 )
-from ..llm import OPUS, LLM, Effort
+from ..llm import LLM, OPUS, Effort
 
 Emit = Callable[[EventBody], object]
 T = TypeVar("T", bound=BaseModel)
@@ -103,10 +103,11 @@ def render_spec(spec: Spec) -> str:
         f"Seed strategy: {spec.seed_strategy}",
         "Objectives:",
     ]
+    directions = {"min": "minimize", "max": "maximize", "target": "hit a target value"}
     for o in spec.objectives:
         target = f", target {o.target}" if o.target is not None else ""
         lines.append(
-            f"  {o.property} ({o.label}) — {o.direction}imize, unit {o.unit}, "
+            f"  {o.property} ({o.label}) — {directions[o.direction]}, unit {o.unit}, "
             f"weight {o.weight}{target}"
         )
     if spec.constraints:
@@ -227,7 +228,7 @@ async def notebook_entry(
     return text
 
 
-async def reason_then_format(
+async def reason_then_format[T: BaseModel](
     llm: LLM,
     emit: Emit,
     schema: type[T],

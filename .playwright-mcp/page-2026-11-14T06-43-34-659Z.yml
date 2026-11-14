@@ -1,0 +1,46 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e6]:
+      - generic [ref=e7]: ATHANOR
+      - text: "Hypothesis tree — live: growth, a verdict landing, then a scrub back"
+    - generic [ref=e8]:
+      - generic [ref=e9]: OPEN
+      - generic [ref=e11]: SUPPORTED
+      - generic [ref=e13]: REFUTED
+      - generic [ref=e15]: INCONCLUSIVE
+    - generic [ref=e17]:
+      - link "tree" [ref=e18] [cursor=pointer]:
+        - /url: "?scene=tree"
+      - link "tree-earlier" [ref=e19] [cursor=pointer]:
+        - /url: "?scene=tree-earlier"
+      - link "tree-fixture" [ref=e20] [cursor=pointer]:
+        - /url: "?scene=tree-fixture"
+      - link "tree-single" [ref=e21] [cursor=pointer]:
+        - /url: "?scene=tree-single"
+      - link "tree-chain" [ref=e22] [cursor=pointer]:
+        - /url: "?scene=tree-chain"
+      - link "tree-broken" [ref=e23] [cursor=pointer]:
+        - /url: "?scene=tree-broken"
+      - link "space" [ref=e24] [cursor=pointer]:
+        - /url: "?scene=space"
+      - link "space-fly" [ref=e25] [cursor=pointer]:
+        - /url: "?scene=space-fly"
+      - link "space-fixture" [ref=e26] [cursor=pointer]:
+        - /url: "?scene=space-fixture"
+      - link "space-empty" [ref=e27] [cursor=pointer]:
+        - /url: "?scene=space-empty"
+      - link "pareto" [ref=e28] [cursor=pointer]:
+        - /url: "?scene=pareto"
+      - link "pareto-fixture" [ref=e29] [cursor=pointer]:
+        - /url: "?scene=pareto-fixture"
+      - link "pareto-degenerate" [ref=e30] [cursor=pointer]:
+        - /url: "?scene=pareto-degenerate"
+      - link "pareto-collinear" [ref=e31] [cursor=pointer]:
+        - /url: "?scene=pareto-collinear"
+      - link "tree-live" [ref=e32] [cursor=pointer]:
+        - /url: "?scene=tree-live"
+      - link "edge" [ref=e33] [cursor=pointer]:
+        - /url: "?scene=edge"
+      - link "pareto-empty" [ref=e34] [cursor=pointer]:
+        - /url: "?scene=pareto-empty"
+  - alert [ref=e35]

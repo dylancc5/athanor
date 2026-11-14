@@ -15,7 +15,7 @@ from ase.lattice.cubic import SimpleCubic
 from athanor import ood
 
 
-def nacl_like() -> "object":
+def nacl_like() -> object:
     """A clean, periodic, close-packed ionic crystal (rock-salt LiCl)."""
     return bulk("LiCl", crystalstructure="rocksalt", a=5.14, cubic=True)
 
@@ -108,26 +108,76 @@ def test_two_atoms_03_angstrom_apart_is_hard_ood():
 
 
 def test_isolated_atom_beyond_the_model_cutoff_is_hard_ood():
+    """Genuinely alone: no neighbour and no periodic image inside the cutoff."""
+    from ase import Atoms
+
+    atoms = Atoms(
+        "LiClLi",
+        positions=[[0, 0, 0], [2.57, 0, 0], [0, 0, 18.0]],
+        cell=[40.0, 40.0, 40.0],
+        pbc=True,
+    )
+    report = ood.assess_structure(atoms)
+    assert report.hard is True
+    assert report.signals["max_nn_distance_A"] == -1.0  # no neighbour at all
+    assert "no neighbour at all" in report.summary()
+    assert "free-atom reference" in report.summary()
+
+
+def test_a_wide_vacuum_gap_does_not_hide_a_periodic_image():
+    """A displaced atom whose own image is still nearby is loose, not isolated."""
     atoms = nacl_like()
     positions = atoms.get_positions()
     positions[0] = positions[0] + np.array([0.0, 0.0, 40.0])
     cell = atoms.cell.array.copy()
-    cell[2][2] = 120.0  # open up the cell so it is genuinely alone
+    cell[2][2] = 120.0
     atoms.set_cell(cell)
     atoms.set_positions(positions)
 
     report = ood.assess_structure(atoms)
-    assert report.hard is True
-    assert report.signals["max_nn_distance_A"] > ood.ISOLATION_CUTOFF_A
-    assert "cutoff" in report.summary()
+    assert report.hard is False  # its x/y images are 5.14 A away
+    assert report.is_ood  # but it is still flagged as loose
+    assert "covalent-radius sum" in report.summary()
 
 
-def test_single_atom_is_hard_ood():
+def test_lone_non_periodic_atom_is_hard_ood():
     from ase import Atoms
 
     report = ood.assess_structure(Atoms("Li", positions=[[0, 0, 0]]))
     assert report.hard is True
-    assert "Single-atom" in report.summary()
+    assert "no neighbour at all" in report.summary()
+    assert "free-atom reference" in report.summary()
+
+
+@pytest.mark.parametrize(
+    ("element", "structure", "a"),
+    [("Li", "bcc", 3.44), ("Cu", "fcc", 3.61), ("Fe", "bcc", 2.87), ("Mg", "hcp", 3.21)],
+)
+def test_one_site_periodic_cells_are_not_ood(element, structure, a):
+    """A single-site unit cell is ordinary in Materials Project: its neighbours
+    are its own periodic images. Counting atoms instead of neighbours would
+    flag bcc Li, fcc Cu and most elemental metals as out of distribution."""
+    report = ood.assess_structure(bulk(element, crystalstructure=structure, a=a))
+    assert not report.is_ood
+    assert report.signals["max_nn_distance_A"] < ood.ISOLATION_CUTOFF_A
+    assert report.signals["min_contact_fraction"] > ood.CLOSE_CONTACT_WARN
+
+
+def test_tightest_contact_is_found_across_all_pairs_not_just_nearest_neighbours():
+    """The worst contact relative to covalent radii need not be the shortest
+    absolute distance — a longer gap between two big atoms can be tighter."""
+    from ase import Atoms
+
+    # H-H at 1.5 A (1.42x their covalent sum) and Cs-Cs at 2.0 A (0.41x theirs).
+    atoms = Atoms(
+        "HHCsCs",
+        positions=[[0, 0, 0], [1.5, 0, 0], [0, 8.0, 0], [2.0, 8.0, 0]],
+        cell=[16.0, 16.0, 16.0],
+        pbc=True,
+    )
+    report = ood.assess_structure(atoms)
+    assert report.hard is True
+    assert "Cs-Cs" in report.summary()  # not the shorter H-H contact
 
 
 def test_accepts_an_atoms_dict():

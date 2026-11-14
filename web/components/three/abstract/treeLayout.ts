@@ -88,10 +88,20 @@ export function layoutTree(
 ): TreeLayout {
   const input = Array.isArray(nodes) ? nodes.filter(isUsableNode) : [];
 
+  // A different campaign (or a replay from scratch) shares no ids with the
+  // cache: keeping the old placements would wedge the new tree into the shape
+  // of the old one, so the cache is dropped.
+  const cached = Object.keys(previous.byId);
+  if (input.length && cached.length && !input.some((n) => previous.byId[n.id])) {
+    previous = EMPTY_LAYOUT;
+  }
+
   const byId: Record<string, PlacedNode> = { ...previous.byId };
   const branchIndex: Record<string, number> = { ...previous.branchIndex };
   const slots: Record<string, number> = { ...previous.slots };
-  let order = previous.nodes.length;
+  // Arrival order counts everything ever placed, not what is currently shown,
+  // or a scrub back would hand two nodes the same order.
+  let order = Object.keys(previous.byId).length;
 
   // De-duplicate ids, keeping the first occurrence (the stream may repeat one).
   const seen = new Set<string>();
@@ -168,7 +178,23 @@ export function layoutTree(
     }
   }
 
-  const placed = Object.values(byId).sort((a, b) => a.order - b.order);
+  // `byId` is a position *cache* that outlives the current input; what gets
+  // rendered is only what the input still contains. The app shell scrubs the
+  // event log back and forth, so a node that is no longer in the log must
+  // disappear, however firmly its position is remembered.
+  const placed = unique
+    .map((n) => byId[n.id])
+    .filter((n): n is PlacedNode => !!n)
+    .sort((a, b) => a.order - b.order)
+    .map((n) => {
+      // Re-resolve the parent against the *current* input: a child that
+      // arrived one event before its parent would otherwise never get an edge.
+      const raw = present.get(n.id)?.parent_id;
+      const parentId =
+        typeof raw === "string" && raw !== n.id && present.has(raw) && byId[raw] ? raw : null;
+      return parentId === n.parentId ? n : { ...n, parentId };
+    });
+
   const edges: TreeLayout["edges"] = [];
   const radiusByDepth: Record<number, number> = {};
   let maxDepth = 0;
@@ -177,7 +203,8 @@ export function layoutTree(
     const r = Math.hypot(node.position[0], node.position[2]);
     radiusByDepth[node.depth] = Math.max(radiusByDepth[node.depth] ?? 0, r);
     const parent = node.parentId ? byId[node.parentId] : undefined;
-    if (parent) {
+    // An edge is drawn only when both ends are on screen.
+    if (parent && present.has(parent.id)) {
       edges.push({
         id: `${parent.id}->${node.id}`,
         from: parent.position,

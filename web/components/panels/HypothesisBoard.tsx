@@ -94,23 +94,26 @@ function Card({
   return (
     <article
       onClick={onSelect}
-      className={`rise-in group cursor-pointer border bg-panel-2 transition-colors ${
+      className={`rise-in group relative cursor-pointer border bg-panel-2 transition-colors duration-700 ${
         selected ? "border-accent/50" : "border-rule hover:border-rule-bright"
       }`}
-      style={
-        refuted
-          ? {
-              background:
-                "repeating-linear-gradient(135deg, rgba(248,113,113,0.045) 0 6px, transparent 6px 14px), #090c12",
-            }
-          : undefined
-      }
     >
+      {/* The "go dark" pass. A background/gradient swap cannot be animated, so
+          this is a separate layer whose opacity transitions instead. */}
       <div
-        className="h-px w-full"
+        aria-hidden
+        className="pointer-events-none absolute inset-0 transition-opacity duration-700 ease-out"
+        style={{
+          opacity: refuted ? 1 : 0,
+          background:
+            "repeating-linear-gradient(135deg, rgba(248,113,113,0.05) 0 6px, transparent 6px 14px), rgba(5,7,11,0.72)",
+        }}
+      />
+      <div
+        className="relative h-px w-full transition-all duration-700"
         style={{ background: `linear-gradient(90deg, ${color}, transparent 70%)` }}
       />
-      <div className="flex items-center justify-between gap-3 px-3 py-2">
+      <div className="relative flex items-center justify-between gap-3 px-3 py-2">
         <div className="flex items-baseline gap-2">
           <span className="num text-[0.6875rem] text-ink-faint">
             R{h.round} · {h.id}
@@ -123,14 +126,14 @@ function Card({
       </div>
 
       <p
-        className={`px-3 pb-2.5 text-[0.875rem] leading-snug ${
+        className={`relative px-3 pb-2.5 text-[0.875rem] leading-snug transition-colors duration-700 ${
           refuted ? "text-ink-dim" : "text-ink"
         }`}
       >
         {h.statement}
       </p>
 
-      <div className="flex flex-col gap-2 px-3 pb-3">
+      <div className="relative flex flex-col gap-2 px-3 pb-3">
         <Field label="Prediction">{h.prediction}</Field>
         <Field label="Falsified if">
           <span className={refuted ? "text-refuted" : undefined}>

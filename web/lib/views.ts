@@ -6,7 +6,7 @@
 
 import type { Artifact } from "@/lib/contracts";
 import type { CampaignState } from "@/lib/campaign-state";
-import { latestArtifactOfKind } from "@/lib/campaign-state";
+import { latestArtifactOfKind, measuredProperties } from "@/lib/campaign-state";
 
 export type ViewName =
   | "structure"
@@ -160,29 +160,89 @@ export function isViewName(v: string | null | undefined): v is ViewName {
   return VIEWS.some((def) => def.name === v);
 }
 
-/** Bounding sphere radius of a point cloud, for camera placement. */
-export function boundingSphere(points: number[][]): { center: [number, number, number]; radius: number } {
-  if (points.length === 0) return { center: [0, 0, 0], radius: 10 };
-  const min = [Infinity, Infinity, Infinity];
-  const max = [-Infinity, -Infinity, -Infinity];
-  for (const p of points) {
-    for (let i = 0; i < 3; i++) {
-      const v = p[i] ?? 0;
-      if (v < min[i]) min[i] = v;
-      if (v > max[i]) max[i] = v;
+/** Camera framing comes from agent E's parser module — not reimplemented here. */
+export { boundingSphere, trajectoryBoundingSphere } from "@/lib/structure-parse";
+
+// --------------------------------------------------------------------------
+// Chemical-space axis labels
+// --------------------------------------------------------------------------
+
+/**
+ * `embedding.updated` carries bare xyz coordinates — the contract never says
+ * which property each dimension is, and in the recorded campaigns the order is
+ * NOT `spec.objectives` order (it is barrier, band gap, then hull scaled up for
+ * visual spread). Labelling the axes by assuming an order therefore puts the
+ * wrong name on real numbers, which is exactly the sort of quiet lie this
+ * product is supposed to avoid.
+ *
+ * So the mapping is recovered from the data: a dimension is labelled with a
+ * property only when its values across candidates are an affine function of
+ * that property's values (|Pearson r| ~ 1), which survives the arbitrary
+ * rescaling. Anything unmatched stays an honest "Dimension N".
+ */
+export function embeddingAxisLabels(
+  state: CampaignState,
+): [string, string, string] {
+  const ids = Object.keys(state.embedding);
+  const objectives = state.spec?.objectives ?? [];
+  const properties = measuredProperties(state);
+
+  /**
+   * The unit is only printed when the dimension carries the property's actual
+   * values (slope 1, intercept 0). Some dimensions are rescaled for visual
+   * spread — the hull axis is multiplied by ten in the recorded campaigns —
+   * and printing "eV/atom" beside a tenfold number would contradict the
+   * measurements table. Those are marked "relative" instead.
+   */
+  const labelFor = (property: string, exact: boolean) => {
+    const o = objectives.find((x) => x.property === property);
+    const name = o ? o.label : property.replace(/_/g, " ");
+    if (!o) return exact ? name : `${name} (relative)`;
+    return exact ? `${name} (${o.unit})` : `${name} (relative)`;
+  };
+
+  const out: [string, string, string] = ["Dimension 1", "Dimension 2", "Dimension 3"];
+
+  for (let dim = 0; dim < 3; dim++) {
+    let best: { property: string; r: number; exact: boolean } | null = null;
+
+    for (const property of properties) {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const id of ids) {
+        const point = state.embedding[id];
+        const m = state.measurements[id]?.[property];
+        if (!point || !m || typeof point[dim] !== "number") continue;
+        xs.push(point[dim]);
+        ys.push(m.value);
+      }
+      if (xs.length < 3) continue;
+
+      const mean = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+      const mx = mean(xs);
+      const my = mean(ys);
+      let num = 0;
+      let dx = 0;
+      let dy = 0;
+      for (let i = 0; i < xs.length; i++) {
+        const a = xs[i] - mx;
+        const b = ys[i] - my;
+        num += a * b;
+        dx += a * a;
+        dy += b * b;
+      }
+      if (dx <= 1e-12 || dy <= 1e-12) continue;
+      const r = Math.abs(num / Math.sqrt(dx * dy));
+      if (r <= 0.999) continue;
+      const slope = num / dx; // property per embedding unit
+      const intercept = my - slope * mx;
+      const scale = Math.max(1, Math.abs(my));
+      const exact =
+        Math.abs(slope - 1) < 1e-6 && Math.abs(intercept) < 1e-9 * scale;
+      if (!best || r > best.r) best = { property, r, exact };
     }
+
+    if (best) out[dim] = labelFor(best.property, best.exact);
   }
-  const center: [number, number, number] = [
-    (min[0] + max[0]) / 2,
-    (min[1] + max[1]) / 2,
-    (min[2] + max[2]) / 2,
-  ];
-  let radius = 0;
-  for (const p of points) {
-    const dx = (p[0] ?? 0) - center[0];
-    const dy = (p[1] ?? 0) - center[1];
-    const dz = (p[2] ?? 0) - center[2];
-    radius = Math.max(radius, Math.sqrt(dx * dx + dy * dy + dz * dz));
-  }
-  return { center, radius: Math.max(radius, 2) };
+  return out;
 }

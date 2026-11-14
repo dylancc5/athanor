@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "gen:types": "json2ts --input lib/contracts.schema.json --output lib/contracts.ts --unreachableDefinitions --no-format",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sync:campaigns": "node lib/sync-campaigns.mjs",
+    "prebuild": "node lib/sync-campaigns.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.1.2",

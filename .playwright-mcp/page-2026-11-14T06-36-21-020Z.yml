@@ -1,0 +1,53 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: tree · single node
+      - generic [ref=e9]: tree · deep chain
+      - generic [ref=e14]: tree · broken parents, cycles, NaN
+      - generic [ref=e19]: tree · empty
+      - generic [ref=e24]: space · fixture (4 pts, 1 unranked)
+      - generic [ref=e29]: space · NaN and short rows
+      - generic [ref=e34]: space · empty
+      - generic [ref=e39]: pareto · fixture (3 frontier pts)
+      - generic [ref=e44]: pareto · 1 frontier pt, dupes, NaN
+      - generic [ref=e49]: pareto · collinear frontier
+      - generic [ref=e54]: pareto · empty
+      - generic [ref=e59]: pareto · axes that match nothing
+    - generic [ref=e64]:
+      - generic [ref=e65]: ATHANOR
+      - text: Edge cases — every degenerate input at once
+    - generic [ref=e66]:
+      - link "tree" [ref=e67] [cursor=pointer]:
+        - /url: "?scene=tree"
+      - link "tree-earlier" [ref=e68] [cursor=pointer]:
+        - /url: "?scene=tree-earlier"
+      - link "tree-fixture" [ref=e69] [cursor=pointer]:
+        - /url: "?scene=tree-fixture"
+      - link "tree-single" [ref=e70] [cursor=pointer]:
+        - /url: "?scene=tree-single"
+      - link "tree-chain" [ref=e71] [cursor=pointer]:
+        - /url: "?scene=tree-chain"
+      - link "tree-broken" [ref=e72] [cursor=pointer]:
+        - /url: "?scene=tree-broken"
+      - link "space" [ref=e73] [cursor=pointer]:
+        - /url: "?scene=space"
+      - link "space-fly" [ref=e74] [cursor=pointer]:
+        - /url: "?scene=space-fly"
+      - link "space-fixture" [ref=e75] [cursor=pointer]:
+        - /url: "?scene=space-fixture"
+      - link "space-empty" [ref=e76] [cursor=pointer]:
+        - /url: "?scene=space-empty"
+      - link "pareto" [ref=e77] [cursor=pointer]:
+        - /url: "?scene=pareto"
+      - link "pareto-fixture" [ref=e78] [cursor=pointer]:
+        - /url: "?scene=pareto-fixture"
+      - link "pareto-degenerate" [ref=e79] [cursor=pointer]:
+        - /url: "?scene=pareto-degenerate"
+      - link "pareto-collinear" [ref=e80] [cursor=pointer]:
+        - /url: "?scene=pareto-collinear"
+      - link "edge" [ref=e81] [cursor=pointer]:
+        - /url: "?scene=edge"
+      - link "pareto-empty" [ref=e82] [cursor=pointer]:
+        - /url: "?scene=pareto-empty"
+  - button "Open Next.js Dev Tools" [ref=e88] [cursor=pointer]
+  - alert [ref=e92]

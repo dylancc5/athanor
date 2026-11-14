@@ -86,16 +86,26 @@ def property_vocabulary(
     return sorted(out.items())
 
 
-def retrieval_scorer(scorers: list[Scorer] | None = None) -> Any | None:
-    """A registry entry that can retrieve seed candidates, if one exists.
+def retrieval_scorer(
+    domain: Domain | None = None, scorers: list[Scorer] | None = None
+) -> Any | None:
+    """A registry entry that can retrieve seed candidates for `domain`.
 
     Duck-typed on purpose: the `Scorer` protocol has no retrieval method, so
     the contract we look for is an awaitable `retrieve(spec, n) -> [Candidate]`.
+
+    The domain filter is not optional in practice. A retrieval scorer declares
+    which domains it covers, and handing it a spec from another one makes it
+    raise — so picking the first entry that merely *has* a `retrieve` method
+    sends a crystal campaign to a molecular retriever.
     """
     pool = all_scorers() if scorers is None else scorers
     for scorer in pool:
-        if callable(getattr(scorer, "retrieve", None)):
-            return scorer
+        if not callable(getattr(scorer, "retrieve", None)):
+            continue
+        if domain is not None and domain not in tuple(getattr(scorer, "domains", ())):
+            continue
+        return scorer
     return None
 
 
