@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATHANOR Teleprompter</title>
+<style>
+  :root {
+    --bg: #07080a;
+    --fg: #f2f5f8;
+    --dim: #6b7585;
+    --accent: #7dd3fc;
+    --warn: #fbbf24;
+    --speed: 1;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+
+  header {
+    flex: none; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid #1b1f26;
+    background: #0b0d11; font-size: 13px; color: var(--dim);
+  }
+  header strong { color: var(--fg); font-weight: 600; letter-spacing: .02em; }
+  button {
+    font: inherit; font-size: 13px; padding: 6px 13px; border-radius: 7px;
+    border: 1px solid #2a3039; background: #141821; color: var(--fg); cursor: pointer;
+  }
+  button:hover { border-color: #3a4250; background: #1a1f29; }
+  button.primary { background: var(--accent); color: #04243a; border-color: var(--accent); font-weight: 600; }
+  input[type=range] { width: 130px; accent-color: var(--accent); vertical-align: middle; }
+  .spacer { flex: 1; }
+  #clock { font-variant-numeric: tabular-nums; font-size: 15px; color: var(--fg); }
+  #clock.over { color: var(--warn); }
+
+  /* The reading surface. A fixed sight line sits ~38% down; text scrolls past it. */
+  #stage { position: relative; flex: 1; overflow: hidden; }
+  #sight {
+    position: absolute; top: 38%; left: 0; right: 0; height: 0;
+    border-top: 1px solid rgba(125,211,252,.33); pointer-events: none; z-index: 3;
+  }
+  #sight::after {
+    content: ""; position: absolute; left: 0; top: -7px;
+    border: 7px solid transparent; border-left-color: var(--accent);
+  }
+  #fadeTop, #fadeBottom { position: absolute; left: 0; right: 0; height: 18%; z-index: 2; pointer-events: none; }
+  #fadeTop { top: 0; background: linear-gradient(var(--bg), transparent); }
+  #fadeBottom { bottom: 0; background: linear-gradient(transparent, var(--bg)); }
+
+  #scroll { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+  #inner { max-width: 1100px; margin: 0 auto; padding: 38vh 6vw 70vh; }
+
+  .section { margin: 0 0 1.1em; color: var(--accent); font-size: 1.05rem;
+    letter-spacing: .14em; text-transform: uppercase; opacity: .75; }
+  .shot { margin: 0 0 1.4em; color: var(--dim); font-size: 1.15rem; font-style: italic; line-height: 1.5; }
+  p.say { margin: 0 0 1.5em; font-size: 3.1rem; line-height: 1.34; font-weight: 500; letter-spacing: -.01em; }
+  p.say .brk { color: var(--accent); opacity: .55; padding: 0 .12em; }
+  em { color: #fff; font-style: normal; box-shadow: inset 0 -.42em 0 rgba(125,211,252,.16); }
+  hr { border: 0; border-top: 1px solid #171b22; margin: 2.4em 0; }
+
+  footer { flex: none; padding: 7px 16px; border-top: 1px solid #1b1f26;
+    background: #0b0d11; font-size: 12px; color: var(--dim); }
+  kbd { background: #171b22; border: 1px solid #2a3039; border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, monospace; font-size: 11px; }
+  @media (max-width: 760px) { p.say { font-size: 2rem; } #inner { padding: 38vh 5vw 70vh; } }
+</style>
+</head>
+<body>
+<header>
+  <strong>ATHANOR</strong>
+  <button id="play" class="primary">Start (space)</button>
+  <button id="reset">Reset</button>
+  <label>Speed <input id="speed" type="range" min="0.3" max="2.2" step="0.05" value="1"><span id="speedv">1.00x</span></label>
+  <label>Size <input id="size" type="range" min="1.6" max="4.6" step="0.1" value="3.1"></label>
+  <button id="mirror">Mirror</button>
+  <span class="spacer"></span>
+  <span id="clock">0:00</span>
+  <span id="target">/ ~3:50</span>
+</header>
+
+<div id="stage">
+  <div id="fadeTop"></div>
+  <div id="sight"></div>
+  <div id="fadeBottom"></div>
+  <div id="scroll"><div id="inner"></div></div>
+</div>
+
+<footer>
+  <kbd>space</kbd> start/pause · <kbd>↑</kbd><kbd>↓</kbd> speed · <kbd>←</kbd><kbd>→</kbd> nudge ·
+  <kbd>r</kbd> reset · <kbd>m</kbd> mirror · Blue <span style="color:var(--accent)">//</span> marks a breath.
+  Read naturally — the edit is cut to your voice, so don't chase the clock.
+</footer>
+
+<script>
+// The script. `say` lines are read aloud; section and shot lines are context only.
+const SCRIPT = [
+  { section: "1 · Cold open", shot: "Title card, then the hypothesis board with a card flipping to REFUTED." },
+  { say: "Here's a research platform proposing a scientific hypothesis, testing it against real physics, and then proving itself wrong. // That last part is the point. Most AI-for-science tools are built to generate plausible answers. This one is built to destroy its own." },
+
+  { section: "2 · The problem", shot: "DFT cost figure, then a stream of generated structures with nothing validating them." },
+  { say: "Computational materials discovery has two problems. // The first is cost. The standard method, density functional theory, runs hundreds of CPU-hours per candidate. A serious screen is a supercomputer allocation and a year of someone's PhD." },
+  { say: "The second problem is newer, and worse. Generative models now propose candidate materials faster than anyone can check them — and they have no idea when they're guessing. A model trained on stable crystals will answer confidently about a structure nothing like anything it has ever seen, and nothing in the output tells you that. // So you end up with a pile of plausible candidates and no way to know which ones are real." },
+
+  { section: "3 · What ATHANOR does", shot: "Type the goal; the Spec materializes with objectives and units." },
+  { say: "ATHANOR is built around a different instinct: <em>a result you can't falsify isn't a result.</em>" },
+  { say: "You give it a research goal in one sentence. Here: find a solid-state lithium electrolyte with a low migration barrier that survives contact with lithium metal. // It turns that into a formal specification — real objectives, real units, real constraints — and then runs a multi-round research campaign against it." },
+
+  { section: "4 · How it works", shot: "Hypothesis tree growing; agent lower-thirds; lab notebook streaming." },
+  { say: "Under the hood there are four reasoning agents, deliberately set against each other. Claude Opus writes a hypothesis with an explicit falsification criterion — the condition under which it would admit it was wrong. A generator proposes candidates. A skeptic vetoes the ones that are unsynthesizable or outside what the physics models can actually be trusted on. And an analyst judges the hypothesis against its own stated criterion." },
+  { say: "The physics is real. Migration barriers come from climbing-image nudged elastic band calculations on MACE, a machine-learned potential trained on Materials Project data. Framework adsorption uses Meta's Open Catalyst models. Molecular systems use semi-empirical quantum chemistry. // Nothing here is a language model guessing at a number." },
+
+  { section: "5 · The demo", shot: "Candidates, vetoes, the NEB lithium hop (hold 5s), measurements table, REFUTED, heuristic written back." },
+  { say: "So watch what actually happens. // The system hypothesizes that in this family of materials, the more stable a compound is, the better lithium moves through it — which would be convenient, because it would collapse the search to a single axis." },
+  { say: "It generates candidates, the skeptic screens them, and then it computes the real barriers. This is a lithium ion migrating through the lattice — that animation is the actual calculated path. // Every number comes with a confidence, and a flag when the model is extrapolating beyond what it was trained on." },
+  { say: "And the hypothesis <em>fails</em>. // The correlation it predicted isn't there. The most stable candidate isn't the best conductor. The analyst marks it refuted, against the criterion it set for itself before seeing any data." },
+  { say: "Then it does the thing that makes this a research platform instead of a search engine: it writes down what it learned — don't screen this family on stability alone — and carries that into the next round. The refuted branch goes dark in the tree, and the campaign gets smarter." },
+
+  { section: "6 · The close", shot: "Proposal panel, compute ledger, then the three campaign archetypes side by side." },
+  { say: "Every campaign ends with something a lab can act on: a synthesis route, a validation protocol, the specific measurements that would prove it wrong — and an honest list of what these models cannot tell you. They reach a few hundred atoms over picoseconds. They say nothing about manufacturability or lifetime, and the proposal admits it." },
+  { say: "The same loop runs on completely different science without changing the code — water-harvesting frameworks, drug formulation stability — because the physics engine is swappable behind one interface. // What's generalizable isn't the chemistry. It's the loop: hypothesize, test, refute, learn." },
+  { say: "That's ATHANOR. It's open source, and everything you just saw ran on a laptop." },
+];
+
+const inner = document.getElementById("inner");
+for (const item of SCRIPT) {
+  if (item.section) {
+    const hr = document.createElement("hr");
+    if (inner.childElementCount) inner.appendChild(hr);
+    const s = document.createElement("div");
+    s.className = "section"; s.textContent = item.section; inner.appendChild(s);
+    if (item.shot) {
+      const d = document.createElement("div");
+      d.className = "shot"; d.textContent = item.shot; inner.appendChild(d);
+    }
+  }
+  if (item.say) {
+    const p = document.createElement("p");
+    p.className = "say";
+    // `//` is a breath mark, not spoken.
+    p.innerHTML = item.say.replace(/\/\//g, '<span class="brk">//</span>');
+    inner.appendChild(p);
+  }
+}
+
+// Scroll at a words-per-minute pace derived from the real word count, so the
+// run time matches the script's target rather than an arbitrary pixel rate.
+const WORDS = SCRIPT.filter(i => i.say)
+  .map(i => i.say.replace(/<[^>]+>/g, "").replace(/\/\//g, " ").trim().split(/\s+/).length)
+  .reduce((a, b) => a + b, 0);
+const WPM = 150;
+const BASE_SECONDS = (WORDS / WPM) * 60;
+document.getElementById("target").textContent =
+  `/ ~${Math.floor(BASE_SECONDS / 60)}:${String(Math.round(BASE_SECONDS % 60)).padStart(2, "0")} · ${WORDS} words`;
+
+const scroll = document.getElementById("scroll");
+const stage = document.getElementById("stage");
+const clock = document.getElementById("clock");
+const playBtn = document.getElementById("play");
+
+let y = 0, speed = 1, playing = false, elapsed = 0, last = 0, mirrored = false;
+
+function travel() {
+  // Distance the text must move for the last line to reach the sight line.
+  return Math.max(1, inner.scrollHeight - stage.clientHeight * 0.38 - stage.clientHeight * 0.3);
+}
+function pxPerSecond() { return (travel() / BASE_SECONDS) * speed; }
+
+function frame(ts) {
+  if (!playing) return;
+  if (!last) last = ts;
+  const dt = (ts - last) / 1000;
+  last = ts;
+  elapsed += dt;
+  y = Math.min(y + pxPerSecond() * dt, travel());
+  apply();
+  const m = Math.floor(elapsed / 60), s = Math.floor(elapsed % 60);
+  clock.textContent = `${m}:${String(s).padStart(2, "0")}`;
+  clock.classList.toggle("over", elapsed > BASE_SECONDS * 1.25);
+  if (y >= travel()) { setPlaying(false); return; }
+  requestAnimationFrame(frame);
+}
+function apply() {
+  scroll.style.transform = `translateY(${-y}px)` + (mirrored ? " scaleX(-1)" : "");
+}
+function setPlaying(v) {
+  playing = v; last = 0;
+  playBtn.textContent = v ? "Pause (space)" : (y > 0 ? "Resume (space)" : "Start (space)");
+  playBtn.classList.toggle("primary", !v);
+  if (v) requestAnimationFrame(frame);
+}
+
+playBtn.onclick = () => setPlaying(!playing);
+document.getElementById("reset").onclick = () => {
+  setPlaying(false); y = 0; elapsed = 0; clock.textContent = "0:00";
+  clock.classList.remove("over"); apply();
+};
+const speedEl = document.getElementById("speed"), speedV = document.getElementById("speedv");
+speedEl.oninput = () => { speed = +speedEl.value; speedV.textContent = speed.toFixed(2) + "x"; };
+document.getElementById("size").oninput = (e) => {
+  document.querySelectorAll("p.say").forEach(p => p.style.fontSize = e.target.value + "rem");
+};
+document.getElementById("mirror").onclick = () => { mirrored = !mirrored; apply(); };
+
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  const k = e.key;
+  if (k === " ") { e.preventDefault(); setPlaying(!playing); }
+  else if (k === "ArrowUp") { e.preventDefault(); speedEl.value = Math.min(2.2, speed + 0.05); speedEl.oninput(); }
+  else if (k === "ArrowDown") { e.preventDefault(); speedEl.value = Math.max(0.3, speed - 0.05); speedEl.oninput(); }
+  else if (k === "ArrowRight") { e.preventDefault(); y = Math.min(y + 90, travel()); apply(); }
+  else if (k === "ArrowLeft") { e.preventDefault(); y = Math.max(y - 90, 0); apply(); }
+  else if (k === "r") document.getElementById("reset").click();
+  else if (k === "m") document.getElementById("mirror").click();
+});
+addEventListener("resize", apply);
+apply();
+</script>
+</body>
+</html>
