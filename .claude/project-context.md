@@ -42,6 +42,15 @@ Any change here must re-verify that number.
 - Avoid superconductors — Tc is not predictable from these potentials and would be fiction.
 - Avoid MACE-OMAT-0 and MACE-OFF23 (academic-only / ASL licensing). MACE-MP-0 is MIT.
 
+## Workflow gates
+
+**Design iteration before filming (Dylan, 2026-11-13).** Once the product is functionally
+complete, Dylan wants a hands-on pass with him on taste — making it look cleaner, more
+interesting, more impressive. **No demo footage gets recorded before he signs off**, because the
+narration is cut to the footage and any visual change afterwards invalidates the take. Get the app
+running and deployed so he can click through it himself, then collect specific notes per panel and
+per 3D view.
+
 ## Conventions
 
 - **Scientific honesty is the product.** Never invent, interpolate or estimate a number. Every

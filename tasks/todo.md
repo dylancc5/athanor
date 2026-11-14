@@ -70,6 +70,15 @@ performance, cost/manufacturability — those come from retrieval + heuristics.
       stake: medicine that survives without refrigeration in hot, low-resource regions
 - [ ] Record all three as golden event logs; rehearse the domain-switch generality proof
 
+## Phase 2.5 — Design iteration with Dylan 🚧 HARD GATE BEFORE FILMING
+Dylan wants a hands-on pass on taste/polish once the product is functionally complete.
+**Do not record any demo footage before this is done** — every visual change after filming
+invalidates the take, and the narration is cut to the footage.
+- [ ] Get the app running locally + deployed so Dylan can click through it himself
+- [ ] Walk him through each panel and all six 3D views; collect specific notes
+- [ ] Iterate on layout, type, color, density, motion until he signs off
+- [ ] Only then proceed to Phase 4
+
 ## Phase 3 — Ship
 - [ ] Static replay build → Vercel (CLI already authenticated as `dylancc5-7738`)
 - [ ] Verify the live URL in Chrome, console clean
