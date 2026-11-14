@@ -30,7 +30,7 @@ from athanor.workers.base import run_worker  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CAMPAIGNS = ROOT / "campaigns"
-CAMPAIGN_ID = "fixture"
+CAMPAIGN_ID = sys.argv[1] if len(sys.argv) > 1 else "fixture"
 
 # Seeds are queried from Materials Project rather than hard-coded, so every
 # one is guaranteed to actually contain lithium and sit near the convex hull.

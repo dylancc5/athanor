@@ -13,7 +13,6 @@ data/cache/
 # build envs / model caches
 backend/envs/*/.venv/
 backend/.venv/
-uv.lock
 video/input/
 video/out/
 video/work/
