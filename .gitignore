@@ -17,3 +17,10 @@ video/input/
 video/out/
 video/work/
 .DS_Store
+
+# Campaign recordings in progress. A campaign is committed only once it is
+# complete, via web/public/campaigns/ (see web/lib/sync-campaigns.mjs, which
+# refuses to publish a log with no terminal event). Re-add a finished one
+# explicitly with `git add -f campaigns/<name>`.
+campaigns/*/events.jsonl
+campaigns/*/artifacts/
