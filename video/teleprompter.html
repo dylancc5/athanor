@@ -96,31 +96,24 @@
 <script>
 // The script. `say` lines are read aloud; section and shot lines are context only.
 const SCRIPT = [
-  { section: "1 · Cold open", shot: "Title card, then the hypothesis board with a card flipping to REFUTED." },
-  { say: "Here's a research platform proposing a scientific hypothesis, testing it against real physics, and then proving itself wrong. // That last part is the point. Most AI-for-science tools are built to generate plausible answers. This one is built to destroy its own." },
-
-  { section: "2 · The problem", shot: "DFT cost figure, then a stream of generated structures with nothing validating them." },
-  { say: "Computational materials discovery has two problems. // The first is cost. The standard method, density functional theory, runs hundreds of CPU-hours per candidate. A serious screen is a supercomputer allocation and a year of someone's PhD." },
-  { say: "The second problem is newer, and worse. Generative models now propose candidate materials faster than anyone can check them — and they have no idea when they're guessing. A model trained on stable crystals will answer confidently about a structure nothing like anything it has ever seen, and nothing in the output tells you that. // So you end up with a pile of plausible candidates and no way to know which ones are real." },
-
-  { section: "3 · What ATHANOR does", shot: "Type the goal; the Spec materializes with objectives and units." },
-  { say: "ATHANOR is built around a different instinct: <em>a result you can't falsify isn't a result.</em>" },
-  { say: "You give it a research goal in one sentence. Here: find a solid-state lithium electrolyte with a low migration barrier that survives contact with lithium metal. // It turns that into a formal specification — real objectives, real units, real constraints — and then runs a multi-round research campaign against it." },
-
-  { section: "4 · How it works", shot: "Hypothesis tree growing; agent lower-thirds; lab notebook streaming." },
-  { say: "Under the hood there are four reasoning agents, deliberately set against each other. Claude Opus writes a hypothesis with an explicit falsification criterion — the condition under which it would admit it was wrong. A generator proposes candidates. A skeptic vetoes the ones that are unsynthesizable or outside what the physics models can actually be trusted on. And an analyst judges the hypothesis against its own stated criterion." },
-  { say: "The physics is real. Migration barriers come from climbing-image nudged elastic band calculations on MACE, a machine-learned potential trained on Materials Project data. Framework adsorption uses Meta's Open Catalyst models. Molecular systems use semi-empirical quantum chemistry. // Nothing here is a language model guessing at a number." },
-
-  { section: "5 · The demo", shot: "Candidates, vetoes, the NEB lithium hop (hold 5s), measurements table, REFUTED, heuristic written back." },
-  { say: "So watch what actually happens. // The system hypothesizes that in this family of materials, the more stable a compound is, the better lithium moves through it — which would be convenient, because it would collapse the search to a single axis." },
-  { say: "It generates candidates, the skeptic screens them, and then it computes the real barriers. This is a lithium ion migrating through the lattice — that animation is the actual calculated path. // Every number comes with a confidence, and a flag when the model is extrapolating beyond what it was trained on." },
-  { say: "And the hypothesis <em>fails</em>. // The correlation it predicted isn't there. The most stable candidate isn't the best conductor. The analyst marks it refuted, against the criterion it set for itself before seeing any data." },
-  { say: "Then it does the thing that makes this a research platform instead of a search engine: it writes down what it learned — don't screen this family on stability alone — and carries that into the next round. The refuted branch goes dark in the tree, and the campaign gets smarter." },
-
-  { section: "6 · The close", shot: "Proposal panel, compute ledger, then the three campaign archetypes side by side." },
-  { say: "Every campaign ends with something a lab can act on: a synthesis route, a validation protocol, the specific measurements that would prove it wrong — and an honest list of what these models cannot tell you. They reach a few hundred atoms over picoseconds. They say nothing about manufacturability or lifetime, and the proposal admits it." },
-  { say: "The same loop runs on completely different science without changing the code — water-harvesting frameworks, drug formulation stability — because the physics engine is swappable behind one interface. // What's generalizable isn't the chemistry. It's the loop: hypothesize, test, refute, learn." },
-  { say: "That's ATHANOR. It's open source, and everything you just saw ran on a laptop." },
+  {"section": "1 · Open — the hook", "shot": "Title card, then the hypothesis board with a card flipping to REFUTED."},
+  {"say": "This is a research platform that proposes a scientific hypothesis, tests it against real physics, and then tries to prove itself wrong. // That last part is the point. Most AI-for-science tools are built to generate plausible answers. This one is built to attack its own."},
+  {"section": "2 · The problem", "shot": "A DFT cost figure, then a stream of generated structures with nothing validating them."},
+  {"say": "Materials discovery has two problems. Simulating a single candidate properly costs hundreds of CPU-hours — a serious screen is a supercomputer allocation and a year of someone's PhD. //"},
+  {"say": "And generative models now propose candidates faster than anyone can check them, with no idea when they're guessing. A model trained on stable crystals will answer confidently about a structure nothing like anything it has seen. // So you get a pile of plausible candidates and no way to know which ones are real."},
+  {"section": "3 · What it does", "shot": "Type the goal; the spec materialises with objectives and units."},
+  {"say": "ATHANOR is built on a different instinct: a result you can't falsify isn't a result."},
+  {"say": "You give it a goal in one sentence — find a solid-state lithium electrolyte with a low migration barrier that survives contact with lithium metal. // It turns that into a formal specification, then runs a multi-round research campaign against it."},
+  {"section": "4 · How it works", "shot": "Hypothesis tree growing; agent names as lower-thirds; lab notebook streaming. Tech slide here."},
+  {"say": "Underneath are four Claude agents, deliberately set against each other. A strategist writes a hypothesis with an explicit falsification criterion — the condition under which it would admit it was wrong. A generator proposes candidates. A skeptic vetoes the ones that are unsynthesisable, or outside what the physics models can actually be trusted on. An analyst judges the hypothesis against its own criterion."},
+  {"say": "And the physics is real. Migration barriers come from nudged elastic band calculations on MACE, a machine-learned potential trained on Materials Project data. Framework chemistry uses Meta's Open Catalyst models. // Nothing here is a language model guessing at a number."},
+  {"section": "5 · The demo — the refutation", "shot": "Candidates, vetoes, the NEB lithium hop (hold 5s), measurements table with OOD and PROXY flags, then REFUTED, then the heuristic written back."},
+  {"say": "So watch what it does. // It hypothesises that in this family of materials, the more stable a compound is, the better lithium moves through it — which would be convenient, because it would collapse the search to a single axis."},
+  {"say": "It generates candidates, the skeptic screens them, and it computes the real barriers. That animation is the actual calculated path of a lithium ion through the lattice. // Every number carries a confidence, and a flag when the model is extrapolating beyond its training data."},
+  {"say": "And the hypothesis fails. // The correlation it predicted isn't there. It marks it refuted — against the criterion it set for itself before seeing any data — writes down what it learned, and carries that into the next round."},
+  {"section": "6 · The close", "shot": "Proposal panel, compute ledger, then the three campaign archetypes side by side."},
+  {"say": "Every campaign ends with something a lab can act on: a synthesis route, a validation protocol, and an honest list of what these models cannot tell you. // The same loop runs on water-harvesting frameworks and drug stability without changing a line of code, because the physics engine is swappable behind one interface."},
+  {"say": "What generalises isn't the chemistry. It's the loop. Hypothesise, test, refute, learn. // That's ATHANOR — and everything you just saw ran on a laptop."},
 ];
 
 const inner = document.getElementById("inner");

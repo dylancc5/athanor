@@ -144,6 +144,10 @@ class FakeScorer:
                 result.failed[cand.id] = self.fail[cand.id]
                 continue
             for prop, value in self.values.get(cand.id, {}).items():
+                # A real scorer only reports the properties it declares, and the
+                # Router routes on exactly that claim.
+                if prop not in self.properties:
+                    continue
                 result.measurements.append(
                     C.Measurement(
                         candidate_id=cand.id,

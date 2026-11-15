@@ -43,6 +43,21 @@ export function TourOverlay() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [holding, setHolding] = useState(false);
 
+  // Publish tour progress for the screen recorder (video/record.mjs), which
+  // waits on this rather than guessing a duration — so a take always covers
+  // the whole tour and stops once it is genuinely finished.
+  useEffect(() => {
+    const atEnd = events.length > 0 && cursor >= events.length;
+    (window as unknown as { __athanorTour?: unknown }).__athanorTour = {
+      state: tour ? (atEnd ? "done" : "running") : "idle",
+      step: tourStep,
+      steps: TOUR.length,
+      caption: caption ? `${caption.title} — ${caption.body}` : "",
+      cursor,
+      events: events.length,
+    };
+  }, [tour, tourStep, caption, cursor, events.length]);
+
   // reset when the tour restarts or the campaign changes
   useEffect(() => {
     if (!tour) {

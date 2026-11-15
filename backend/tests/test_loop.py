@@ -590,11 +590,28 @@ async def test_seed_query_is_written_against_the_hypothesis(tmp_path, monkeypatc
             "Li-P-S": [_FakeMPEntry("mp-2", "Li3PS4", 0.0, "Na")],
         },
     )
-    client = FakeClient(structured=[SEED_QUERY], prose=[])
+    # Round 1 now retrieves AND perturbs, so both replies are scripted.
+    first_round_edits = {
+        "crystal_edits": [
+            {
+                "parent_id": "c-mp-1",
+                "element_out": "Li",
+                # Rb, not Na: mp-2 in this fixture is already pure Na, and the
+                # dedupe would (correctly) drop a child identical to it.
+                "element_in": "Rb",
+                "fraction": 1.0,
+                "rationale": "The derived side of the controlled pair.",
+            }
+        ],
+        "molecular_edits": [],
+        "commentary": "Complete substitution on the retrieved parent.",
+    }
+    client = FakeClient(structured=[SEED_QUERY, first_round_edits], prose=[])
     emitted: list = []
     generator = ClaudeGenerator(LLM(client), emitted.append)
 
     hypothesis = _hypothesis_naming_lgps()
+    hypothesis.batch_plan.n_candidates = 3
     candidates = await generator.propose(
         make_spec(), hypothesis, C.NotebookView(spec=make_spec())
     )
@@ -605,13 +622,31 @@ async def test_seed_query_is_written_against_the_hypothesis(tmp_path, monkeypatc
     assert "Li10GeP2S12" in prompt  # the arm the criterion is written about
 
     assert queried == ["Li-Ge-P-S", "Li-P-S"]
-    assert {c.id for c in candidates} == {"c-mp-1", "c-mp-2"}
-    assert all(c.provenance.source == "retrieval" for c in candidates)
-    assert all(c.provenance.database == "materials_project" for c in candidates)
     assert all(c.hypothesis_id == "h1" for c in candidates)
-    assert all(c.structure.strip() for c in candidates)  # a real CIF, from the database
+    assert all(c.structure.strip() for c in candidates)
+
+    # Retrieved parents are present...
+    by_source = {c.provenance.source for c in candidates}
+    assert {"c-mp-1", "c-mp-2"} <= {c.id for c in candidates}
+    # ...and so is a candidate DERIVED from one of them in the same round. This
+    # is the fix: a batch plan that says "substitute 100% O -> S on candidate 1"
+    # must be executable in the round that proposes it, or the controlled pair
+    # never exists and the verdict is inconclusive on arrival.
+    assert "perturbation" in by_source, [
+        (c.id, c.provenance.source) for c in candidates
+    ]
+    derived = next(c for c in candidates if c.provenance.source == "perturbation")
+    assert derived.provenance.parent_id == "c-mp-1"
+    assert "100% Li -> Rb" in derived.provenance.operation
+
+    # The perturbation prompt must list the just-retrieved parents as editable.
+    edit_prompt = client.structured_calls[-1]["messages"][0]["content"]
+    assert "Parent structures you may edit this round" in edit_prompt
+    assert "c-mp-1" in edit_prompt
+
     note = next(e for e in emitted if e.type == "notebook.delta")
-    assert note.author == "system" and "retrieval" in note.heading.lower()
+    assert note.author == "system"
+    assert "perturbation" in note.heading.lower()
 
 
 async def test_later_rounds_retrieve_as_well_as_perturb(tmp_path, monkeypatch):
@@ -799,3 +834,289 @@ def test_the_real_registry_routes_retrieval_by_domain():
             assert domain in tuple(scorer.domains)
         # Every domain must offer intake something it can actually measure.
         assert property_vocabulary(domain), f"{domain} has no property vocabulary"
+
+
+# --------------------------------------------------------------------------
+# The repair round: a wholesale veto is a coordination failure, not a result
+# --------------------------------------------------------------------------
+
+
+VETO_ALL = {
+    "vetoed": [
+        {
+            "candidate_id": "c-a",
+            "category": "off_spec",
+            "reason": "h1 needs the full oxide in framework B, not a 50% O/S intermediate.",
+        },
+        {
+            "candidate_id": "c-b",
+            "category": "off_spec",
+            "reason": "P -> As changes the central cation, not the anion h1 compares.",
+        },
+    ],
+    "commentary": (
+        "Neither substituted partner is in this batch: h1 needs framework A sulfide "
+        "(100% O->S on c-a) and framework B oxide (100% S->O on c-b)."
+    ),
+}
+
+REPAIR_EDITS = {
+    "crystal_edits": [
+        {
+            "parent_id": "c-a",
+            "element_out": "Li",
+            "element_in": "Na",
+            "fraction": 1.0,
+            "rationale": "Complete substitution: the end member h1 compares.",
+        },
+        {
+            "parent_id": "c-b",
+            "element_out": "Li",
+            "element_in": "K",
+            "fraction": 1.0,
+            "rationale": "The other member of the same comparison.",
+        },
+    ],
+    "molecular_edits": [],
+    "commentary": "Both members of the comparison, at complete substitution.",
+}
+
+APPROVE_ALL = {"vetoed": [], "commentary": "Both members present; the comparison is testable."}
+
+
+def _repair_campaign(tmp_path, scorer, *, second_review):
+    """A round whose first batch is vetoed wholesale, then repaired."""
+    client = FakeClient(
+        # No edit reply here: `fake_propose` below stands in for the generator,
+        # which is covered against the real `ClaudeGenerator` separately.
+        structured=[INTAKE, HYPOTHESIS, VETO_ALL, second_review,
+                    VERDICT, DECISION, PROPOSAL],
+        prose=[
+            "Hypothesis prose. " * 2,
+            "Rejecting this batch. " * 2,
+            "Reviewing the corrected batch. " * 2,
+            "Verdict prose. " * 2,
+            "Controller prose. " * 2,
+            "Proposal prose. " * 2,
+        ],
+    )
+    event_log = EventLog(tmp_path, "repair-campaign")
+    campaign = Campaign(
+        event_log, llm=LLM(client), router=Router([scorer]),
+        config=CampaignConfig(rounds=1, max_candidates=4),
+    )
+    from athanor.loop.generator import apply_substitution as _sub
+
+    seeds = [make_candidate("c-a", "Li2")]
+    sibling = _sub(seeds[0], "Li", "Rb", 0.5, "c-b")
+    sibling.provenance = C.Provenance(
+        source="retrieval", database="materials_project", external_id="c-b"
+    )
+    seeds.append(sibling)
+
+    async def fake_propose(spec, hypothesis, notebook, feedback=""):
+        if feedback:
+            # The real generator is exercised separately; here we assert the
+            # feedback actually arrives and return a corrected batch.
+            campaign._seen_feedback = feedback
+            return [
+                _sub(seeds[0], "Li", "Na", 1.0, "c-fix-1"),
+                _sub(seeds[1], "Li", "K", 1.0, "c-fix-2"),
+            ]
+        for cand in seeds:
+            cand.hypothesis_id = hypothesis.id
+        return seeds
+
+    campaign.generator.propose = fake_propose  # type: ignore[method-assign]
+    return campaign, client
+
+
+async def test_a_wholesale_veto_triggers_one_repair_round_that_can_be_scored(tmp_path):
+    scorer = FakeScorer(
+        {
+            "c-fix-1": {"migration_barrier": 0.52, "energy_above_hull": 0.0},
+            "c-fix-2": {"migration_barrier": 0.21, "energy_above_hull": 0.04},
+        }
+    )
+    campaign, _ = _repair_campaign(tmp_path, scorer, second_review=APPROVE_ALL)
+    await campaign.run("Find a solid lithium electrolyte.")
+
+    reviews = [e.body for e in campaign.log.events if e.body.type == "skeptic.reviewed"]
+    assert len(reviews) == 2, "the corrected batch must face the same review"
+    assert reviews[0].approved_ids == []
+    assert sorted(reviews[1].approved_ids) == ["c-fix-1", "c-fix-2"]
+
+    # The repair is visible in the notebook, not silent.
+    headings = [
+        e.body.heading
+        for e in campaign.log.events
+        if e.body.type == "notebook.delta" and e.body.heading
+    ]
+    assert any("sent the batch back" in h for h in headings)
+
+    # The Generator was told exactly why, including the reviewer's commentary.
+    feedback = campaign._seen_feedback
+    assert "50% O/S intermediate" in feedback
+    assert "100% O->S" in feedback  # the commentary naming what was required
+    assert "off_spec" in feedback
+
+    # And the round now produces a real verdict off real measurements.
+    assert campaign.ledger.measurements == 4
+    verdict = next(
+        e.body for e in campaign.log.events if e.body.type == "analyst.verdict"
+    )
+    assert verdict.verdict == "REFUTED"
+    assert campaign.log.events[-1].body.type == "campaign.completed"
+
+
+async def test_a_repair_that_is_also_rejected_does_not_lower_the_bar(tmp_path):
+    """An honest INCONCLUSIVE beats a manufactured verdict."""
+    campaign, _ = _repair_campaign(
+        tmp_path, FakeScorer(SCORES), second_review=VETO_ALL_AGAIN
+    )
+    await campaign.run("Find a solid lithium electrolyte.")
+
+    reviews = [e.body for e in campaign.log.events if e.body.type == "skeptic.reviewed"]
+    assert len(reviews) == 2
+    assert reviews[1].approved_ids == []
+    # Nothing was scored, and the verdict is forced INCONCLUSIVE rather than
+    # the REFUTED the scripted analyst asked for.
+    assert not [e for e in campaign.log.events if e.body.type == "measurement.recorded"]
+    verdict = next(
+        e.body for e in campaign.log.events if e.body.type == "analyst.verdict"
+    )
+    assert verdict.verdict == "INCONCLUSIVE"
+    assert campaign.log.events[-1].body.type == "campaign.completed"
+
+
+VETO_ALL_AGAIN = {
+    "vetoed": [
+        {"candidate_id": "c-fix-1", "category": "off_spec", "reason": "still wrong"},
+        {"candidate_id": "c-fix-2", "category": "off_spec", "reason": "still wrong"},
+    ],
+    "commentary": "The corrected batch still cannot inform the claim.",
+}
+
+
+async def test_no_repair_when_the_batch_already_passes(tmp_path):
+    """One attempt per round, and none at all when it is not needed."""
+    campaign, _ = seeded_campaign(tmp_path, FakeScorer(SCORES))
+    await campaign.run("Find a solid lithium electrolyte.")
+    reviews = [e.body for e in campaign.log.events if e.body.type == "skeptic.reviewed"]
+    assert len(reviews) == 1
+
+
+async def test_the_generator_is_given_the_hypothesis_batch_design(monkeypatch):
+    """The root cause of the stall: the Generator could not see the batch design,
+    so it proposed candidates that could not inform the claim."""
+    from athanor.loop.generator import ClaudeGenerator
+
+    _mock_mp(monkeypatch, {})  # no retrieval; this is the perturbation path
+    client = FakeClient(structured=[SEED_QUERY, EDITS], prose=[])
+    generator = ClaudeGenerator(LLM(client), lambda body: None)
+
+    hypothesis = _hypothesis_naming_lgps()
+    hypothesis.batch_plan.strategy = (
+        "Score the full sulfide (100% O -> S on c-mp-1) against the full oxide "
+        "in the same framework."
+    )
+    view = C.NotebookView(
+        spec=make_spec(),
+        hypotheses=[hypothesis],
+        candidates={"c-mp-1": make_candidate("c-mp-1", "Li2")},
+    )
+    await generator.propose(make_spec(), hypothesis, view)
+
+    prompt = client.structured_calls[-1]["messages"][0]["content"]
+    assert hypothesis.batch_plan.strategy in prompt, "the strategy must be executable"
+    assert "migration_barrier" in prompt  # batch_plan.properties
+    assert hypothesis.falsification_criterion in prompt
+    assert hypothesis.prediction in prompt
+    assert "every member of every comparison" in prompt
+
+    system = client.structured_calls[-1]["system"]
+    assert "fraction` 1.0" in system  # complete substitution for a comparison
+    assert "comparison measures nothing" in system
+
+
+async def test_the_repair_pass_skips_retrieval_and_carries_the_feedback(monkeypatch):
+    from athanor.loop.generator import ClaudeGenerator
+
+    queried = _mock_mp(monkeypatch, {"Li-Ge-P-S": [_FakeMPEntry("mp-9", "X", 0.0, "K")]})
+    client = FakeClient(structured=[EDITS], prose=[])
+    emitted: list = []
+    generator = ClaudeGenerator(LLM(client), emitted.append)
+
+    view = C.NotebookView(
+        spec=make_spec(), candidates={"c-mp-1": make_candidate("c-mp-1", "Li2")}
+    )
+    out = await generator.propose(
+        make_spec(),
+        _hypothesis_naming_lgps(),
+        view,
+        feedback="  REJECTED c-x — category: off_spec\n    reason: needs the full oxide",
+    )
+
+    assert queried == [], "a repair must answer the objections, not re-query the database"
+    assert out and all(c.provenance.source == "perturbation" for c in out)
+    prompt = client.structured_calls[-1]["messages"][0]["content"]
+    assert "was REJECTED by the reviewer" in prompt
+    assert "needs the full oxide" in prompt
+    note = next(e for e in emitted if e.type == "notebook.delta")
+    assert "corrected batch" in note.heading
+
+
+async def test_decisive_property_is_measured_first_for_every_candidate(tmp_path):
+    """A CI-NEB is 6-8 minutes, so a round that runs out of time must still have
+    the comparison it exists to make, not one fully-scored candidate."""
+    order: list[tuple[str, str]] = []
+
+    def _tracking(cls_name, props, values):
+        class Tracked(FakeScorer):
+            name = cls_name
+            properties = props
+
+            async def score(self, candidates, spec):
+                assert len(candidates) == 1, "scorers are invoked per candidate"
+                order.append((self.name, candidates[0].id))
+                return await super().score(candidates, spec)
+
+        return Tracked(values)
+
+    values = {
+        "c-a": {"migration_barrier": 0.52, "band_gap": 2.8},
+        "c-b": {"migration_barrier": 0.21, "band_gap": 3.0},
+    }
+    decisive = _tracking("slow-barrier", ("migration_barrier",), values)
+    incidental = _tracking("cheap-extras", ("band_gap",), values)
+
+    spec = make_spec()
+    spec.objectives.append(
+        C.Objective(property="band_gap", label="Band gap", direction="max", unit="eV")
+    )
+    campaign = Campaign(
+        EventLog(tmp_path, "ordering"),
+        llm=LLM(FakeClient(structured=[], prose=[])),
+        # Registered incidental-first, so only the priority sort can reorder them.
+        router=Router([incidental, decisive]),
+    )
+    candidates = [make_candidate("c-a", "Li2"), make_candidate("c-b", "Li3")]
+    measurements, failures = await campaign._score(
+        candidates, spec, ["migration_barrier"]
+    )
+
+    assert not failures
+    decisive_calls = [i for i, (name, _) in enumerate(order) if name == "slow-barrier"]
+    incidental_calls = [i for i, (name, _) in enumerate(order) if name == "cheap-extras"]
+    assert len(decisive_calls) == 2 and len(incidental_calls) == 2
+    # Every candidate's decisive measurement lands before any incidental one.
+    assert max(decisive_calls) < min(incidental_calls), order
+    assert [c for _, c in order[:2]] == ["c-a", "c-b"]
+
+    # Measurements are emitted as each candidate finishes, not after the batch,
+    # so an interrupted round keeps a partial comparison instead of nothing.
+    kinds = [e.body.type for e in campaign.log.events]
+    assert kinds.count("scoring.started") == 4
+    assert kinds.index("measurement.recorded") < kinds.index("scoring.started", 2)
+    assert len(measurements) == 4
+    assert campaign.ledger.candidates_scored == 2

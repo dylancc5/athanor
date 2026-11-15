@@ -2,6 +2,14 @@
   "campaigns": [
     {
       "id": "li-conductor",
+      "title": "Solid-state Li conductor",
+      "goal": "Find a solid-state lithium electrolyte with a low Li migration barrier that stays stable against a lithium metal anode.",
+      "domain": "solid_electrolyte",
+      "n_events": 48,
+      "completed": true
+    },
+    {
+      "id": "li-live",
       "title": "Li electrolyte: low barrier, Li-stable",
       "goal": "Find a solid-state lithium electrolyte with a low Li migration barrier that stays stable against a lithium metal anode.",
       "domain": "solid_electrolyte",

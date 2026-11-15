@@ -136,6 +136,10 @@ class Campaign:
         self.router = router if router is not None else Router()
         self.generator = ClaudeGenerator(self.llm, self.emit)
         self._t0 = time.monotonic()
+        # Campaign-wide, because `candidates_scored` is a running total and a
+        # candidate can be measured by more than one scorer and in more than
+        # one round.
+        self._scored_ids: set[str] = set()
 
     # ------------------------------------------------------------- plumbing
 
@@ -264,39 +268,33 @@ class Campaign:
         approved_ids: list[str] = [c.id for c in candidates]
         commentary = ""
         if candidates:
-            view = build_notebook(self.log.events)
-            reviewed = await self._guard(
-                "skeptic",
-                lambda: run_skeptic(
-                    self.llm,
-                    self.emit,
-                    view,
-                    candidates,
-                    hypothesis_id=hypothesis.id,
-                    round_number=round_number,
-                ),
-                None,
+            approved_ids, vetoes, commentary = await self._review(
+                candidates, hypothesis, round_number
             )
-            if reviewed is not None:
-                approved_ids, vetoes, commentary = reviewed
-            else:
-                vetoes = []
-                commentary = (
-                    "The Skeptic failed to run, so nothing was vetoed. Treat this "
-                    "batch as unreviewed."
+
+            # One repair attempt. A batch the Skeptic rejects wholesale is a
+            # coordination failure, not a scientific result: the reviewer
+            # usually names exactly which structures the hypothesis needed, and
+            # that reasoning was previously thrown away — the round then scored
+            # nothing and the verdict was forced INCONCLUSIVE. So the vetoes go
+            # back to the Generator once and the corrected batch is re-reviewed.
+            #
+            # This never lowers the Skeptic's bar: the repaired batch faces the
+            # same review, and if it is rejected too the round proceeds with
+            # whatever survived, up to and including nothing. Capped at one
+            # attempt per round so a campaign cannot loop.
+            needed = min(2, hypothesis.batch_plan.n_candidates)
+            if len(approved_ids) < needed:
+                repaired = await self._repair(
+                    candidates, vetoes, commentary, hypothesis, round_number, needed
                 )
-            self.emit(
-                C.SkepticReviewed(
-                    hypothesis_id=hypothesis.id,
-                    approved_ids=approved_ids,
-                    vetoes=vetoes,
-                    commentary=commentary,
-                )
-            )
-            self.ledger.candidates_vetoed += len(vetoes)
+                if repaired is not None:
+                    candidates, approved_ids, vetoes, commentary = repaired
 
         approved = [c for c in candidates if c.id in set(approved_ids)]
-        measurements, failures = await self._score(approved, spec)
+        measurements, failures = await self._score(
+            approved, spec, hypothesis.batch_plan.properties
+        )
         self._emit_ledger()
 
         all_candidates = list(build_notebook(self.log.events).candidates.values())
@@ -359,12 +357,161 @@ class Campaign:
         self._emit_ledger()
         return decision
 
+    # --------------------------------------------------------------- review
+
+    async def _review(
+        self, candidates: list[C.Candidate], hypothesis: C.Hypothesis, round_number: int
+    ) -> tuple[list[str], list[C.Veto], str]:
+        """Run the Skeptic over a batch and log the review."""
+        view = build_notebook(self.log.events)
+        reviewed = await self._guard(
+            "skeptic",
+            lambda: run_skeptic(
+                self.llm,
+                self.emit,
+                view,
+                candidates,
+                hypothesis_id=hypothesis.id,
+                round_number=round_number,
+            ),
+            None,
+        )
+        if reviewed is not None:
+            approved_ids, vetoes, commentary = reviewed
+        else:
+            approved_ids = [c.id for c in candidates]
+            vetoes = []
+            commentary = (
+                "The Skeptic failed to run, so nothing was vetoed. Treat this "
+                "batch as unreviewed."
+            )
+        self.emit(
+            C.SkepticReviewed(
+                hypothesis_id=hypothesis.id,
+                approved_ids=approved_ids,
+                vetoes=vetoes,
+                commentary=commentary,
+            )
+        )
+        self.ledger.candidates_vetoed += len(vetoes)
+        return approved_ids, vetoes, commentary
+
+    @staticmethod
+    def _veto_feedback(
+        candidates: list[C.Candidate], vetoes: list[C.Veto], commentary: str
+    ) -> str:
+        """The reviewer's objections, in the form the Generator needs to act on."""
+        by_id = {c.id: c for c in candidates}
+        lines = []
+        for veto in vetoes:
+            cand = by_id.get(veto.candidate_id)
+            label = f"{cand.name} ({cand.formula})" if cand else veto.candidate_id
+            origin = ""
+            if cand is not None and cand.provenance.operation:
+                origin = f" [made by: {cand.provenance.operation}]"
+            lines.append(
+                f"  REJECTED {veto.candidate_id} — {label}{origin}\n"
+                f"    category: {veto.category}\n"
+                f"    reason: {veto.reason}"
+            )
+        if commentary:
+            lines.append(
+                "  The reviewer's full commentary, which usually names the exact "
+                "structures the hypothesis requires:\n"
+                f"    {commentary}"
+            )
+        return "\n".join(lines)
+
+    async def _repair(
+        self,
+        candidates: list[C.Candidate],
+        vetoes: list[C.Veto],
+        commentary: str,
+        hypothesis: C.Hypothesis,
+        round_number: int,
+        needed: int,
+    ) -> tuple[list[C.Candidate], list[str], list[C.Veto], str] | None:
+        """One corrected batch after a wholesale rejection. `None` if it did not help."""
+        self._note(
+            f"n-{hypothesis.id}-repair",
+            f"Round {round_number} — the Skeptic sent the batch back",
+            f"Only {len(candidates) - len(vetoes)} of {len(candidates)} candidate(s) "
+            f"survived review, short of the {needed} needed to test "
+            f"{hypothesis.id}. Scoring that would burn compute on candidates the "
+            f"reviewer has already shown cannot inform the claim. Its objections go "
+            f"back to the Generator for one corrected batch, which then faces the "
+            f"same review — the standard does not move.",
+        )
+        feedback = self._veto_feedback(candidates, vetoes, commentary)
+        view = build_notebook(self.log.events)
+        repaired = await self._guard(
+            "generator:repair",
+            lambda: self.generator.propose(view.spec, hypothesis, view, feedback=feedback),
+            [],
+        )
+        if not repaired:
+            self._note(
+                f"n-{hypothesis.id}-repair-failed",
+                None,
+                " The repair produced no new candidates, so the round continues with "
+                "what survived the first review.",
+            )
+            return None
+
+        self.emit(
+            C.CandidatesGenerated(hypothesis_id=hypothesis.id, candidates=repaired)
+        )
+        self.ledger.candidates_generated += len(repaired)
+        self._emit_ledger()
+
+        new_ids, new_vetoes, new_commentary = await self._review(
+            repaired, hypothesis, round_number
+        )
+        if len(new_ids) <= len(
+            [c for c in candidates if c.id not in {v.candidate_id for v in vetoes}]
+        ):
+            self._note(
+                f"n-{hypothesis.id}-repair-reviewed",
+                None,
+                f" The corrected batch did no better ({len(new_ids)} approved). The "
+                f"round proceeds on the evidence that exists rather than on a batch "
+                f"the reviewer rejected twice.",
+            )
+            if not new_ids:
+                return None
+        else:
+            self._note(
+                f"n-{hypothesis.id}-repair-reviewed",
+                None,
+                f" The corrected batch passed review: {len(new_ids)} of "
+                f"{len(repaired)} candidate(s) approved. The round can now test "
+                f"{hypothesis.id}.",
+            )
+        return repaired, new_ids, new_vetoes, new_commentary
+
     # -------------------------------------------------------------- scoring
 
     async def _score(
-        self, candidates: list[C.Candidate], spec: C.Spec
+        self,
+        candidates: list[C.Candidate],
+        spec: C.Spec,
+        decisive: list[str] | None = None,
     ) -> tuple[list[C.Measurement], dict[str, str]]:
-        """Run every routed scorer. Returns the measurements and the failures."""
+        """Run every routed scorer, decisive property first, candidate by candidate.
+
+        Two deliberate choices about *order*, because a CI-NEB is 6-8 minutes
+        and a round can run out of wall clock:
+
+        * **Decisive first.** Scorers that measure a property the hypothesis
+          named as decisive run before the rest, for every candidate, so the
+          comparison the round exists to make is the first thing to land.
+        * **Candidate by candidate.** Each scorer is invoked per candidate
+          rather than on the whole batch, so measurements are emitted as they
+          finish. Previously a batch had to complete before anything was
+          recorded, so an interrupted round yielded nothing at all; now it
+          yields a partial comparison, which the Analyst can honestly reason
+          over (and will call INCONCLUSIVE if it is too thin).
+        """
         measurements: list[C.Measurement] = []
         failures: dict[str, str] = {}
         if not candidates:
@@ -383,30 +530,37 @@ class Campaign:
                 failures[cand.id] = "no scorer available for this domain and objective set"
             return measurements, failures
 
-        scored_ids: set[str] = set()
+        wanted = set(decisive or [])
+        # (priority, scorer name, candidate): priority 0 decides the hypothesis.
+        units: list[tuple[int, str, C.Candidate]] = []
         for scorer_name, batch in plan.items():
-            scorer: Any = self.router.by_name(scorer_name)
-            for cand in batch:
-                self.emit(C.ScoringStarted(candidate_id=cand.id, scorer=scorer_name))
+            scorer = self.router.by_name(scorer_name)
+            priority = 0 if (wanted & set(scorer.properties)) else 1
+            units.extend((priority, scorer_name, cand) for cand in batch)
+        # Stable: all decisive work, in batch order, then everything else.
+        units.sort(key=lambda u: u[0])
+
+        for _, scorer_name, cand in units:
+            scorer_obj: Any = self.router.by_name(scorer_name)
+            self.emit(C.ScoringStarted(candidate_id=cand.id, scorer=scorer_name))
             started = time.monotonic()
             result = await self._guard(
                 f"scoring:{scorer_name}",
-                lambda s=scorer, b=batch: s.score(b, spec),  # type: ignore[misc]
+                lambda s=scorer_obj, c=cand: s.score([c], spec),  # type: ignore[misc]
                 None,
             )
             self.ledger.scorer_seconds = round(
                 self.ledger.scorer_seconds + (time.monotonic() - started), 2
             )
             if result is None:
-                for cand in batch:
-                    failures.setdefault(cand.id, f"scorer {scorer_name} raised")
+                failures.setdefault(cand.id, f"scorer {scorer_name} raised")
                 continue
 
             for m in result.measurements:
                 measurements.append(m)
                 self.emit(C.MeasurementRecorded(measurement=m))
                 self.ledger.measurements += 1
-                scored_ids.add(m.candidate_id)
+                self._scored_ids.add(m.candidate_id)
             for artifact, payload in result.artifacts:
                 try:
                     self.log.emit_artifact(artifact, payload)
@@ -416,8 +570,10 @@ class Campaign:
                     )
             for cid, reason in result.failed.items():
                 failures[cid] = f"{scorer_name}: {reason}"
+            self.ledger.candidates_scored = len(self._scored_ids)
+            self._emit_ledger()
 
-        self.ledger.candidates_scored += len(scored_ids)
+        self.ledger.candidates_scored = len(self._scored_ids)
         return measurements, failures
 
     # -------------------------------------------------------------- closing

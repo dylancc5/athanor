@@ -53,17 +53,46 @@ You propose chemical edits to real, retrieved structures so a hypothesis can be
 tested. You never write a structure: you name the parent candidate and the edit,
 and the platform applies it with a real structure-manipulation library.
 
+**Your job is to execute the hypothesis's batch design, not to explore.** The
+hypothesis, its prediction, its falsification criterion and its batch strategy
+are given to you. Read them as a specification and build the batch they require.
+A reviewer sees this batch next and rejects, as off-spec, any candidate that
+cannot inform the stated claim — however interesting that candidate is.
+
+Two rules decide whether the batch is testable:
+
+1. **Generate every member of every comparison the hypothesis names.** If the
+   claim compares an oxide against a sulfide at fixed framework, the batch needs
+   the oxide *and* the sulfide, in that framework. If it compares framework A
+   against framework B at fixed chemistry, it needs both frameworks. Half a
+   comparison measures nothing: the round dies whatever the numbers say. Check
+   each clause of the prediction and the falsification criterion and ask which
+   structures it mentions — all of them must be in the batch or already
+   measured in the notebook.
+2. **Change only the variable under test.** The hypothesis names the variables
+   it compares. An edit that moves anything else — swapping the central cation
+   when the claim is about the anion, changing the framework when the claim is
+   about composition — confounds the comparison and will be rejected.
+
 A crystalline edit is an elemental substitution on the parent lattice: which
 element leaves, which element replaces it, and what fraction of its sites are
-affected. Keep fractions physically reasonable (0.1 to 0.5 for aliovalent
-substitutions) and keep the substituting ion's size and charge plausible for the
-site it enters, or the edit is chemistry fiction even if the code can perform it.
+affected.
+
+- **For a controlled comparison use complete substitution, `fraction` 1.0.** A
+  claim about "the oxide versus the sulfide" is about the end members. A 50%
+  mixed-anion intermediate is neither end member, so it cannot sit on either
+  side of the comparison.
+- Use a partial fraction only when the hypothesis is itself about composition
+  dependence (a trend, a doping level, an optimum). Then give the series the
+  claim needs, including the end members that anchor it.
+- Keep the substituting ion's size and charge plausible for the site it enters,
+  or the edit is chemistry fiction even if the code can perform it.
 
 A molecular edit is the child's SMILES plus a description of the change in
 words ("replace the ester with an amide").
 
-Every edit must be chosen because it discriminates the hypothesis under test —
-say in one clause which way the measurement should move if the claim holds."""
+Say for each edit which way the measurement should move if the claim holds, and
+which member of which comparison the candidate is."""
 
 
 class CrystalEdit(BaseModel):
@@ -238,11 +267,23 @@ class ClaudeGenerator:
         )
 
     async def propose(
-        self, spec: Spec, hypothesis: Hypothesis, notebook: NotebookView
+        self,
+        spec: Spec,
+        hypothesis: Hypothesis,
+        notebook: NotebookView,
+        feedback: str = "",
     ) -> list[Candidate]:
+        """Build the batch for `hypothesis`.
+
+        `feedback` is the Skeptic's reasoning about a batch it just rejected.
+        When it is set this is a repair pass: the whole batch must come from
+        corrected edits, so retrieval is skipped and the notebook entry says
+        plainly that the reviewer sent the batch back.
+        """
         n = hypothesis.batch_plan.n_candidates
-        entry_id = f"n-{hypothesis.id}-generator"
-        first_round = not notebook.candidates
+        repair = bool(feedback)
+        entry_id = f"n-{hypothesis.id}-generator-repair" if repair else f"n-{hypothesis.id}-generator"
+        first_round = not notebook.candidates and not repair
 
         # Retrieval runs every round, not just the first. A hypothesis whose
         # falsification criterion names a material the campaign has not seen
@@ -252,20 +293,41 @@ class ClaudeGenerator:
         # "put LGPS in the batch explicitly" impossible to act on.
         retrieved: list[Candidate] = []
         where = ""
-        try:
-            retrieved, where = await retrieve_seeds(self.llm, spec, n, hypothesis)
-        except Exception as exc:  # perturbation may still carry a later round
-            log.info("retrieval produced nothing this round: %s", exc)
-            if first_round:
-                raise
+        if not repair:
+            # A repair pass must answer the reviewer's specific objections, and a
+            # fresh database query would just re-add candidates it already saw.
+            try:
+                retrieved, where = await retrieve_seeds(self.llm, spec, n, hypothesis)
+            except Exception as exc:  # perturbation may still carry a later round
+                log.info("retrieval produced nothing this round: %s", exc)
+                if first_round:
+                    raise
 
         known = {c.structure.strip() for c in notebook.candidates.values()}
         retrieved = [c for c in retrieved if c.structure.strip() not in known]
 
+        # Perturbation is available in EVERY round, including the first, using
+        # whatever parents exist by now — the ones just retrieved included.
+        #
+        # Gating this on "not the first round" was subtly wrong and cost a real
+        # campaign its round 1: the Strategist's batch strategy asked for the
+        # sulfide side of a controlled pair to be built by 100% O -> S
+        # substitution on the oxide it had just retrieved, and because the
+        # generator could only retrieve, an unrelated Li3PS4 polymorph came back
+        # instead. The two barriers were then not a controlled comparison, the
+        # Skeptic said so, and the verdict was INCONCLUSIVE on arrival. A
+        # hypothesis whose own batch plan names a derived structure has to be
+        # able to get one in the round that proposes it.
+        parents = dict(notebook.candidates)
+        for cand in retrieved:
+            parents[cand.id] = cand
+
         perturbed: list[Candidate] = []
         commentary = ""
-        if not first_round:
-            perturbed, commentary = await self._perturb(spec, hypothesis, notebook)
+        if parents:
+            perturbed, commentary = await self._perturb(
+                spec, hypothesis, notebook, feedback=feedback, parents=parents
+            )
 
         proposals = retrieved + perturbed
         if not proposals:
@@ -284,25 +346,46 @@ class ClaudeGenerator:
         for cand in chosen:
             cand.hypothesis_id = hypothesis.id
 
-        if first_round:
-            heading = "Candidate generation — retrieval"
+        if repair:
+            heading = "Candidate generation — corrected batch"
             text = (
-                f"Seeded the campaign with {len(chosen)} candidate(s): {where}. "
-                f"The query was written against this round's hypothesis, so the batch "
-                f"can reach the materials its falsification criterion names. "
-                f"Structures come from the database as retrieved; nothing here was "
-                f"written by a language model."
+                f"The Skeptic rejected the previous batch for this hypothesis, so the "
+                f"batch was rebuilt against its objections rather than scored anyway. "
+                f"{commentary.strip()} {len(chosen)} corrected candidate(s), each "
+                f"applied to a real retrieved parent with ASE and carrying its parent "
+                f"and operation in provenance."
             )
         else:
-            heading = "Candidate generation — retrieval and perturbation"
+            kept_retrieved = [c for c in chosen if c.provenance.source == "retrieval"]
+            kept_perturbed = [c for c in chosen if c.provenance.source == "perturbation"]
+            how = " and ".join(
+                x
+                for x in (
+                    "retrieval" if kept_retrieved else "",
+                    "perturbation" if kept_perturbed else "",
+                )
+                if x
+            )
+            heading = f"Candidate generation — {how or 'retrieval'}"
             parts = []
-            if retrieved:
-                parts.append(f"Retrieved {len(retrieved)} further candidate(s): {where}.")
-            if perturbed:
+            if kept_retrieved:
                 parts.append(
-                    f"{commentary.strip()} Applied {len(perturbed)} edit(s) to retrieved "
-                    f"parent structures with ASE; the parent and the exact operation are "
-                    f"recorded on each candidate's provenance."
+                    f"{len(kept_retrieved)} candidate(s) retrieved: {where}. The query "
+                    f"was written against this round's hypothesis, so the batch can "
+                    f"reach the materials its falsification criterion names. Structures "
+                    f"come from the database as retrieved; nothing here was written by a "
+                    f"language model."
+                )
+            if kept_perturbed:
+                ops = "; ".join(
+                    f"{c.id} = {c.provenance.operation} on {c.provenance.parent_id}"
+                    for c in kept_perturbed
+                )
+                parts.append(
+                    f"{commentary.strip()} {len(kept_perturbed)} candidate(s) derived "
+                    f"from a real parent structure with ASE ({ops}), which is what lets "
+                    f"a controlled comparison be built in the same round the hypothesis "
+                    f"asks for it."
                 )
             text = " ".join(parts)
         if selection_note:
@@ -311,32 +394,71 @@ class ClaudeGenerator:
         return chosen
 
     async def _perturb(
-        self, spec: Spec, hypothesis: Hypothesis, notebook: NotebookView
+        self,
+        spec: Spec,
+        hypothesis: Hypothesis,
+        notebook: NotebookView,
+        feedback: str = "",
+        parents: dict[str, Candidate] | None = None,
     ) -> tuple[list[Candidate], str]:
+        """Claude proposes edits; this code applies them with ASE.
+
+        `feedback` carries the Skeptic's vetoes from a batch it rejected, so the
+        repair pass is told exactly what was wrong instead of guessing again.
+        `parents` is what may be edited — the notebook's candidates plus any
+        retrieved moments ago in this same round.
+        """
+        available = dict(notebook.candidates) if parents is None else parents
         from ..agents.base import render_notebook
 
         # Over-propose so the active-learning cut has something to choose from.
         want = max(hypothesis.batch_plan.n_candidates * 2, hypothesis.batch_plan.n_candidates + 2)
-        prompt = (
-            f"{render_notebook(notebook)}\n\n"
-            f"Hypothesis under test:\n"
-            f"  {hypothesis.statement}\n"
-            f"  prediction: {hypothesis.prediction}\n"
-            f"  falsified if: {hypothesis.falsification_criterion}\n"
-            f"  batch strategy: {hypothesis.batch_plan.strategy}\n\n"
+        parts = [
+            render_notebook(notebook),
+            "Parent structures you may edit this round (use these ids):\n"
+            + "\n".join(
+                f"  {c.id}  {c.name} ({c.formula or 'formula unknown'})  {c.repr_kind}"
+                for c in available.values()
+            ),
+            (
+                "Hypothesis under test — read this as the specification for the batch:\n"
+                f"  claim: {hypothesis.statement}\n"
+                f"  rationale: {hypothesis.rationale}\n"
+                f"  prediction: {hypothesis.prediction}\n"
+                f"  FALSIFIED IF: {hypothesis.falsification_criterion}\n"
+                f"  batch strategy (execute this): {hypothesis.batch_plan.strategy}\n"
+                f"  decided by these measurements: "
+                f"{', '.join(hypothesis.batch_plan.properties)}\n"
+                f"  batch size: {hypothesis.batch_plan.n_candidates}"
+            ),
+        ]
+        if feedback:
+            parts.append(
+                "A previous batch for this same hypothesis was REJECTED by the "
+                "reviewer. Read the reasons and fix them; do not re-propose a "
+                "rejected candidate unchanged:\n" + feedback
+            )
+        parts.append(
             f"--- your task ---\n"
-            f"Propose about {want} edits to the candidates above, so the "
+            f"Propose about {want} edits, so the "
             f"{hypothesis.batch_plan.n_candidates} most informative can be chosen. "
-            f"Use crystal_edits for cif parents and molecular_edits for smiles "
-            f"parents; leave the other list empty."
+            f"Before you list them, work out which structures each clause of the "
+            f"prediction and the falsification criterion refers to, and make sure "
+            f"every member of every comparison is either in your list or already "
+            f"measured in the notebook above. Use crystal_edits for cif parents and "
+            f"molecular_edits for smiles parents; leave the other list empty."
         )
         batch = await self.llm.structured(
-            EditBatch, system=PERTURB_SYSTEM, prompt=prompt, effort="high", max_tokens=16000
+            EditBatch,
+            system=PERTURB_SYSTEM,
+            prompt="\n\n".join(parts),
+            effort="high",
+            max_tokens=16000,
         )
 
         out: list[Candidate] = []
         for edit in batch.crystal_edits:
-            parent = notebook.candidates.get(edit.parent_id)
+            parent = available.get(edit.parent_id)
             if parent is None or parent.repr_kind != "cif":
                 continue
             try:
@@ -353,7 +475,7 @@ class ClaudeGenerator:
                 log.info("dropping edit on %s: %s", edit.parent_id, exc)
 
         for edit in batch.molecular_edits:
-            parent = notebook.candidates.get(edit.parent_id)
+            parent = available.get(edit.parent_id)
             if parent is None or parent.repr_kind != "smiles":
                 continue
             try:
@@ -369,6 +491,6 @@ class ClaudeGenerator:
                 log.info("dropping molecular edit on %s: %s", edit.parent_id, exc)
 
         # Drop edits that reproduced an existing candidate exactly.
-        known = {c.structure.strip() for c in notebook.candidates.values()}
+        known = {c.structure.strip() for c in available.values()}
         deduped = [c for c in out if c.structure.strip() not in known]
         return deduped, batch.commentary

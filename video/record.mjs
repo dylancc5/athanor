@@ -32,6 +32,8 @@ const { values: args } = parseArgs({
     speed: { type: "string", default: "1" },
     "lead-in": { type: "string", default: "1.5" },
     "lead-out": { type: "string", default: "2.5" },
+    "hero-seconds": { type: "string", default: "14" },
+    "hold-seconds": { type: "string", default: "25" },
   },
 });
 
@@ -43,7 +45,9 @@ const outDir = dirname(outPath);
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
 const target = new URL(args.url);
-target.searchParams.set("tour", "1");
+// Land on the hero (the results-first card) rather than jumping straight
+// into the tour: it is the strongest opening visual, and the narration's
+// first thirty seconds have nothing else to sit over.
 target.searchParams.set("campaign", args.campaign);
 if (args.speed !== "1") target.searchParams.set("speed", args.speed);
 
@@ -85,10 +89,40 @@ page.on("requestfailed", (r) => {
   problems.push(`requestfailed: ${r.url()} ${f ? f.errorText : ""}`);
 });
 
-await page.goto(target.href, { waitUntil: "networkidle", timeout: 60_000 });
+await page.goto(target.href, { waitUntil: "domcontentloaded", timeout: 60_000 });
 
 // Let fonts settle and the first 3D frame land before anything is captured.
 await page.waitForTimeout(Number(args["lead-in"]) * 1000);
+
+// Dwell on the landing card, then start the guided tour the way a viewer
+// would — by pressing the button, so the transition is captured on camera.
+const heroMs = Number(args["hero-seconds"]) * 1000;
+if (heroMs > 0) {
+  console.log(`  holding on the landing card for ${args["hero-seconds"]}s`);
+  await page.waitForTimeout(heroMs);
+}
+const watch = page.getByRole("button", { name: /watch it think/i }).first();
+if (await watch.count()) {
+  await watch.click();
+  console.log("  clicked 'Watch it think' — tour starting");
+} else {
+  problems.push("'Watch it think' not found; falling back to ?tour=1");
+  await page.goto(`${target.href}&tour=1`, { waitUntil: "domcontentloaded" });
+}
+await page.waitForTimeout(800);
+
+// The recorded campaign spans its real wall-clock time, so replaying it at 1x
+// would run far longer than any narration. Drive the UI's own speed control.
+const speedLabel = args.speed === "1" ? null : `${args.speed}X`;
+if (speedLabel) {
+  const btn = page.getByRole("button", { name: new RegExp(`^${speedLabel}$`, "i") }).first();
+  if (await btn.count()) {
+    await btn.click();
+    console.log(`  replay speed set to ${speedLabel}`);
+  } else {
+    problems.push(`speed control ${speedLabel} not found; recording at 1x`);
+  }
+}
 
 const hasHook = await page.evaluate(() => typeof window.__athanorTour === "object");
 const captions = [];
@@ -119,6 +153,13 @@ if (hasHook) {
   await sleep(Number(args["fallback-seconds"]) * 1000);
 }
 
+// Hold on the finished campaign. The narration runs ~3 min while the tour
+// is ~2.3 min, and a frozen last frame under live voice looks like a crash.
+const holdMs = Number(args["hold-seconds"]) * 1000;
+if (holdMs > 0) {
+  console.log(`  holding on the final state for ${args["hold-seconds"]}s`);
+  await page.waitForTimeout(holdMs);
+}
 await page.waitForTimeout(Number(args["lead-out"]) * 1000);
 
 const video = page.video();

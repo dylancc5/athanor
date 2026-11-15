@@ -510,3 +510,36 @@ def test_build_notebook_is_a_pure_fold_of_the_log():
 def test_build_notebook_requires_a_spec():
     with pytest.raises(ValueError):
         build_notebook([C.CampaignStarted(goal="g")])
+
+
+async def test_strategist_is_told_the_batch_budget_its_criterion_must_fit():
+    """The Strategist tends to write four-way comparisons a 3-candidate batch
+    cannot settle, which comes back inconclusive for want of arithmetic."""
+    spec = make_spec()
+    draft = {
+        "statement": "s", "rationale": "r", "prediction": "p",
+        "falsification_criterion": "f",
+        "batch_plan": {"n_candidates": 3, "strategy": "st",
+                       "properties": ["migration_barrier"]},
+        "builds_on_hypothesis_id": "",
+    }
+    client = FakeClient(structured=[draft], prose=["Reasoning. "])
+    _events, emit = collector()
+    await run_strategist(
+        LLM(client), emit, view_with(spec),
+        round_number=1, hypothesis_id="h1", max_candidates=3,
+    )
+    prompt = client.prose_calls[0]["messages"][0]["content"]
+    assert "HARD BUDGET" in prompt
+    assert "at most 3 candidate(s)" in prompt
+    assert "decidable from at most 3" in prompt
+
+    system = client.prose_calls[0]["system"]
+    assert "decidable within the batch you are given" in system
+    # The nudge must stay honest: it narrows the claim to what the budget can
+    # test, and never steers the Strategist toward a particular outcome.
+    budget_para = system[system.index("decidable within the batch") :]
+    budget_para = budget_para[: budget_para.index("The batch plan is an instruction")]
+    for forbidden in ("refut", "should fail", "expect to fail", "design it to"):
+        assert forbidden not in budget_para.lower(), forbidden
+    assert "Narrowing" in budget_para
