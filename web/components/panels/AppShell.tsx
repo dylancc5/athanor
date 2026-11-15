@@ -49,7 +49,7 @@ function Header() {
   const restart = useCampaign((s) => s.restart);
 
   // Two campaigns can share a spec title; fall back to the id so the picker
-  // never shows two identical buttons.
+  // never shows two identical options.
   const titleCounts = new Map<string, number>();
   for (const c of campaigns) titleCounts.set(c.title, (titleCounts.get(c.title) ?? 0) + 1);
 
@@ -66,28 +66,38 @@ function Header() {
         <span className="hidden text-[0.8125rem] text-ink-faint sm:inline">
           autonomous research campaigns
         </span>
-        {state.spec ? (
-          <span className="hidden min-w-0 truncate border-l border-rule pl-3 text-[0.8125rem] text-ink-dim md:inline">
-            {state.spec.title}
-          </span>
-        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
+        {/* The picker is navigation, not a call to action, so it looks like a
+            select. The chosen title appears here and nowhere else in the header. */}
         {campaigns.length > 0 ? (
-          <nav aria-label="Recorded campaigns" className="flex flex-wrap items-center gap-1.5">
-            {campaigns.map((c) => (
-              <Button
-                key={c.id}
-                size="sm"
-                active={c.id === campaignId}
-                title={c.goal}
-                onClick={() => void loadCampaign(c.id, { play: true })}
+          <label className="flex items-center gap-2">
+            <span className="text-[0.8125rem] text-ink-faint">Campaign</span>
+            <span className="relative">
+              <select
+                value={campaignId ?? ""}
+                onChange={(e) => void loadCampaign(e.target.value, { play: true })}
+                title={campaigns.find((c) => c.id === campaignId)?.goal}
+                className="appearance-none rounded border border-rule bg-panel-2 py-1 pr-7 pl-2 text-[0.8125rem] text-ink transition-colors hover:border-rule-bright focus-visible:border-accent/60"
               >
-                {(titleCounts.get(c.title) ?? 0) > 1 ? `${c.title} · ${c.id}` : c.title}
-              </Button>
-            ))}
-          </nav>
+                {campaignId === null ? (
+                  <option value="">{state.spec?.title ?? "—"}</option>
+                ) : null}
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {(titleCounts.get(c.title) ?? 0) > 1 ? `${c.title} · ${c.id}` : c.title}
+                  </option>
+                ))}
+              </select>
+              <span
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[0.625rem] text-ink-faint"
+              >
+                ▾
+              </span>
+            </span>
+          </label>
         ) : null}
         <div aria-hidden className="mx-1 h-4 w-px bg-rule" />
         <Button

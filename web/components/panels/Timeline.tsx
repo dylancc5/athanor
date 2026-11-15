@@ -21,6 +21,12 @@ const MARKS: Record<string, { color: string; label: string }> = {
 
 const SPEEDS = [0.5, 1, 2, 4];
 
+/** `campaign.completed` → "Campaign completed". Event names are for code. */
+function humanizeEvent(type: string): string {
+  const s = type.replace(/[._]/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 interface Mark {
   i: number;
   color: string;
@@ -87,6 +93,7 @@ export function Timeline() {
 
   const frac = n === 0 ? 0 : cursor / n;
   const current = cursor > 0 ? events[cursor - 1] : null;
+  const atEnd = n > 0 && cursor >= n;
 
   // The range input covers the whole strip so it can take the drag, which
   // means the marks underneath never receive a hover. Name them from the
@@ -128,11 +135,11 @@ export function Timeline() {
           <Button
             onClick={toggle}
             tone="accent"
-            title={playing ? "Pause (Space)" : "Play (Space)"}
+            title={playing ? "Pause (Space)" : atEnd ? "Replay from the beginning (Space)" : "Play (Space)"}
             aria-keyshortcuts="Space"
             className="min-w-[4.25rem]"
           >
-            {playing ? "Pause" : "Play"}
+            {playing ? "Pause" : atEnd ? "↻ Replay" : "Play"}
           </Button>
           <Button
             size="sm"
@@ -148,27 +155,38 @@ export function Timeline() {
             onClick={() => stepBy(1)}
             title="Next event (→)"
             aria-keyshortcuts="ArrowRight"
-            disabled={cursor >= n}
+            disabled={atEnd}
           >
             Next
           </Button>
-          <Button size="sm" onClick={restart} title="Replay from the beginning (Home)">
-            Restart
-          </Button>
+          {/* At the end the play button already says Replay. */}
+          {!atEnd ? (
+            <Button size="sm" onClick={restart} title="Replay from the beginning (Home)">
+              Restart
+            </Button>
+          ) : null}
 
           <div aria-hidden className="mx-1 h-4 w-px bg-rule" />
 
-          <div role="group" aria-label="Replay speed" className="flex items-center gap-1">
+          {/* One control with four settings, not four controls. */}
+          <div
+            role="group"
+            aria-label="Replay speed"
+            className="flex items-center divide-x divide-rule rounded border border-rule"
+          >
             {SPEEDS.map((s) => (
-              <Button
+              <button
                 key={s}
-                size="sm"
-                active={speed === s}
+                type="button"
+                aria-pressed={speed === s}
                 onClick={() => setSpeed(s)}
                 title={`${s}x replay speed`}
+                className={`num px-2 py-1 text-[0.6875rem] leading-none transition-colors first:rounded-l last:rounded-r ${
+                  speed === s ? "bg-accent/15 text-accent" : "text-ink-dim hover:text-ink"
+                }`}
               >
-                {s}x
-              </Button>
+                {s}×
+              </button>
             ))}
           </div>
 
@@ -183,16 +201,19 @@ export function Timeline() {
               Verdict
             </Button>
           ) : null}
-          <Button size="sm" onClick={jumpToEnd} title="Jump to the end (End)">
+          <Button size="sm" onClick={jumpToEnd} title="Jump to the end (End)" disabled={atEnd}>
             End
           </Button>
 
           <div className="ml-auto flex items-center gap-3">
             <span className="num text-[0.75rem] text-ink-faint">
               {state.round > 0 ? `round ${state.round} · ` : ""}
-              event {cursor}/{n}
+              event {cursor} of {n}
             </span>
-            <span className="num text-[0.8125rem] text-ink">{fmtClock(state.lastT)}</span>
+            <span className="num text-[0.8125rem] text-ink" title="campaign time elapsed">
+              {fmtClock(state.lastT)}
+              <span className="ml-1 text-[0.6875rem] text-ink-faint">elapsed</span>
+            </span>
           </div>
         </div>
 
@@ -280,7 +301,7 @@ export function Timeline() {
 
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <span className="num min-w-0 truncate text-[0.75rem] text-ink-dim">
-            {current ? current.body.type : "start of campaign"}
+            {current ? humanizeEvent(current.body.type) : "Start of campaign"}
           </span>
           <div className="flex items-center gap-x-3">
             <ul aria-label="Timeline marks" className="hidden items-center gap-x-3 xl:flex">

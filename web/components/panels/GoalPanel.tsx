@@ -1,20 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Panel } from "@/components/ui/Panel";
 import { Button, Chip } from "@/components/ui/Bits";
 import { fmtConstraint } from "@/lib/format";
 import { useCampaign } from "@/lib/store";
 
+// Direction is not a verdict, so it gets an arrow rather than a color that
+// reads as good or bad.
 const DIRECTION_MARK: Record<string, string> = {
-  min: "minimize",
-  max: "maximize",
-  target: "hit target",
+  min: "↓ minimize",
+  max: "↑ maximize",
+  target: "◎ hit target",
 };
 
 function SpecView() {
   const state = useCampaign((s) => s.state);
   const spec = state.spec;
+  // Weights only mean something relative to each other, so show all or none.
+  const weighted = spec?.objectives.some((o) => (o.weight ?? 1) !== 1) ?? false;
   if (!spec) {
     return (
       <div className="flex flex-col gap-2 p-3">
@@ -59,15 +63,15 @@ function SpecView() {
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                {o.weight !== undefined && o.weight !== 1 ? (
+                {weighted ? (
                   <span
                     className="num text-[0.6875rem] text-ink-faint"
-                    title={`objective weight ${o.weight}`}
+                    title={`objective weight ${o.weight ?? 1}`}
                   >
-                    ×{o.weight}
+                    ×{o.weight ?? 1}
                   </span>
                 ) : null}
-                <Chip color={o.direction === "min" ? "#7dd3fc" : "#34d399"}>
+                <Chip color="#9aa8b8">
                   {DIRECTION_MARK[o.direction] ?? o.direction}
                 </Chip>
               </div>
@@ -76,8 +80,16 @@ function SpecView() {
         </ul>
       </div>
 
+      {/* Remounts on completion so the detail folds away once results matter more. */}
+      <details key={String(state.completed)} open={!state.completed} className="group">
+        <summary className="label cursor-pointer select-none list-none hover:text-ink-dim">
+          <span className="inline-block transition-transform group-open:rotate-90">▸</span>{" "}
+          {spec.constraints?.length ?? 0} constraint
+          {(spec.constraints?.length ?? 0) === 1 ? "" : "s"} · seed strategy
+        </summary>
+
       {spec.constraints && spec.constraints.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
+        <div className="mt-3 flex flex-col gap-1.5">
           <span className="label">Constraints</span>
           <ul className="flex flex-col gap-2">
             {spec.constraints.map((c, i) => (
@@ -94,12 +106,13 @@ function SpecView() {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-1">
+      <div className="mt-3 flex flex-col gap-1">
         <span className="label">Seed strategy</span>
         <p className="text-[0.8125rem] leading-relaxed text-ink-faint">
           {spec.seed_strategy}
         </p>
       </div>
+      </details>
     </div>
   );
 }
@@ -145,8 +158,22 @@ function PublicDemoNotice() {
   );
 }
 
+/** ⌘ on Apple keyboards, Ctrl everywhere else. Resolved after mount (SSR-safe). */
+function useModKey() {
+  const [mod, setMod] = useState("Ctrl");
+  useEffect(() => {
+    if (/Mac|iPhone|iPad/.test(navigator.platform)) setMod("⌘");
+  }, []);
+  return mod;
+}
+
 export function GoalPanel() {
   const [goal, setGoal] = useState("");
+  // Once a spec is loaded the panel is showing a campaign, not asking for one.
+  // The input comes back only when the user explicitly starts a new one.
+  const [composing, setComposing] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mod = useModKey();
   const requestCampaign = useCampaign((s) => s.requestCampaign);
   const notice = useCampaign((s) => s.publicDemoNotice);
   const state = useCampaign((s) => s.state);
@@ -156,9 +183,16 @@ export function GoalPanel() {
   // type a goal and find out afterwards.
   const replayOnly = sourceStatus === "ready" && source?.kind !== "api";
 
+  const showInput = !state.spec || composing;
+
+  useEffect(() => {
+    if (composing) inputRef.current?.focus();
+  }, [composing]);
+
   const submit = () => {
     if (goal.trim().length === 0) return;
     void requestCampaign(goal.trim());
+    setComposing(false);
   };
 
   return (
@@ -166,14 +200,23 @@ export function GoalPanel() {
       id="panel-goal"
       title="Research goal"
       eyebrow={state.spec ? "spec locked" : "intake"}
+      right={
+        state.spec && !composing ? (
+          <Button size="sm" onClick={() => setComposing(true)} title="Start a new campaign">
+            + New
+          </Button>
+        ) : null
+      }
       bodyClassName=""
     >
       {notice ? <PublicDemoNotice /> : null}
+      {showInput ? (
       <div className="no-print flex flex-col gap-2 border-b border-rule p-3">
         <label htmlFor="goal-input" className="label">
           Your goal, in one sentence
         </label>
         <textarea
+          ref={inputRef}
           id="goal-input"
           name="goal"
           autoComplete="off"
@@ -182,6 +225,7 @@ export function GoalPanel() {
           onChange={(e) => setGoal(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+            if (e.key === "Escape" && state.spec) setComposing(false);
           }}
           rows={3}
           placeholder="e.g. a solid electrolyte with a low Li migration barrier that survives a lithium metal anode…"
@@ -197,17 +241,21 @@ export function GoalPanel() {
             ) : (
               <>
                 <kbd className="num rounded border border-rule bg-panel-2 px-1 py-px text-[0.6875rem] text-ink-dim">
-                  ⌘ Enter
+                  {mod} Enter
                 </kbd>{" "}
                 to run
               </>
             )}
           </span>
-          <Button tone="accent" onClick={submit} disabled={goal.trim().length === 0}>
-            Run campaign
-          </Button>
+          <div className="flex shrink-0 gap-1.5">
+            {state.spec ? <Button onClick={() => setComposing(false)}>Cancel</Button> : null}
+            <Button tone="accent" onClick={submit} disabled={goal.trim().length === 0}>
+              Run campaign
+            </Button>
+          </div>
         </div>
       </div>
+      ) : null}
       <SpecView />
     </Panel>
   );
