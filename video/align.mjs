@@ -124,13 +124,29 @@ async function transcribe() {
   await run("whisper-cli", ["-m", model, "-f", wav, "--output-json", "-of", stem, "-ml", "1"]);
 
   const raw = JSON.parse(readFileSync(`${stem}.json`, "utf8"));
-  const words = (raw.transcription ?? [])
-    .map((t) => ({
-      text: t.text.trim(),
-      from: t.offsets.from / 1000,
-      to: t.offsets.to / 1000,
-    }))
-    .filter((w) => w.text && /[a-z0-9]/i.test(w.text));
+  // whisper -ml 1 emits sub-word TOKENS, not words: "proposes" comes back as
+  // "prop" + "oses" and "doesn't" as "doesn" + "'t". A token that did not
+  // begin with a space is a continuation of the previous one, so merge it back
+  // or every caption is littered with split words.
+  const tokens = (raw.transcription ?? []).map((t) => ({
+    raw: t.text,
+    text: t.text.trim(),
+    from: t.offsets.from / 1000,
+    to: t.offsets.to / 1000,
+  }));
+  const words = [];
+  for (const t of tokens) {
+    if (!t.text) continue;
+    const continuation =
+      words.length > 0 && (!/^\s/.test(t.raw) || /^[''’,.!?;:%)\]]/.test(t.text));
+    if (continuation && /[a-z0-9''’,.!?;:]/i.test(t.text)) {
+      const prev = words[words.length - 1];
+      prev.text += t.text;
+      prev.to = Math.max(prev.to, t.to);
+    } else if (/[a-z0-9]/i.test(t.text)) {
+      words.push({ text: t.text, from: t.from, to: t.to });
+    }
+  }
   writeFileSync(cached, JSON.stringify({ words }, null, 2));
   console.log(`  ${words.length} words, ${words.at(-1)?.to.toFixed(1)}s`);
   return { words };
@@ -219,6 +235,32 @@ function alignBlocks(words, blocks) {
   return spans;
 }
 
+/**
+ * Terms speech recognition reliably mangles. These captions are burned in, so
+ * a wrong product or model name is permanent and visible — worth a lookup.
+ * Keys are matched case-insensitively against whole words.
+ */
+const TERM_FIXES = new Map(Object.entries({
+  "athenaur": "ATHANOR", "athanor": "ATHANOR", "athena": "ATHANOR",
+  "athenor": "ATHANOR", "athener": "ATHANOR", "ethanor": "ATHANOR",
+  "atheneur": "ATHANOR", "anthanor": "ATHANOR",
+  "mace": "MACE", "neb": "NEB", "dft": "DFT", "ood": "OOD",
+  "pareto": "Pareto", "mattergen": "MatterGen", "matter-gen": "MatterGen",
+  "gnome": "GNoME", "nome": "GNoME", "alchemy": "ALCHEMI", "alchemi": "ALCHEMI",
+  "deepmind": "DeepMind", "deep-mind": "DeepMind",
+  "nvidia": "NVIDIA", "meta": "Meta", "microsoft": "Microsoft",
+  "claude": "Claude", "li3ps4": "Li3PS4", "lithium": "lithium",
+}));
+
+function fixTerms(text) {
+  return text.replace(/[A-Za-z][A-Za-z0-9'-]*/g, (w) => {
+    const hit = TERM_FIXES.get(w.toLowerCase());
+    if (!hit) return w;
+    // Keep sentence capitalisation if the word was already capitalised there.
+    return hit;
+  });
+}
+
 function fmtSrt(t) {
   const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
   const s = Math.floor(t % 60), ms = Math.round((t % 1) * 1000);
@@ -235,11 +277,11 @@ function buildSrt(words, maxChars = 74) {
     const text = cur.map((x) => x.text).join(" ");
     const endsClause = /[.!?,;:]$/.test(w.text);
     if (text.length >= maxChars || (endsClause && text.length > 28)) {
-      cues.push({ start, end: w.to, text: text.replace(/\s+([,.!?;:])/g, "$1") });
+      cues.push({ start, end: w.to, text: fixTerms(text.replace(/\s+([,.!?;:])/g, "$1")) });
       cur = []; start = null;
     }
   }
-  if (cur.length) cues.push({ start, end: cur.at(-1).to, text: cur.map((x) => x.text).join(" ") });
+  if (cur.length) cues.push({ start, end: cur.at(-1).to, text: fixTerms(cur.map((x) => x.text).join(" ")) });
   return cues.map((c, i) => `${i + 1}\n${fmtSrt(c.start)} --> ${fmtSrt(c.end)}\n${c.text}\n`).join("\n");
 }
 

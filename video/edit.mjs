@@ -37,15 +37,20 @@ const cardsDir = resolve(T.sources.cards);
 
 function run(cmd, cmdArgs, { capture = false } = {}) {
   return new Promise((res, rej) => {
-    const p = spawn(cmd, cmdArgs, { stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit" });
+    // Always capture stderr: ffmpeg reports the real reason there, and losing
+    // it turns a one-line filter-graph typo into an opaque exit code.
+    const p = spawn(cmd, cmdArgs, { stdio: ["ignore", capture ? "pipe" : "inherit", "pipe"] });
     let out = "", err = "";
-    if (capture) {
-      p.stdout.on("data", (d) => (out += d));
-      p.stderr.on("data", (d) => (err += d));
-    }
-    p.on("close", (code) =>
-      code === 0 ? res({ out, err }) : rej(new Error(`${cmd} exited ${code}\n${err.slice(-4000)}`)),
-    );
+    if (capture) p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => {
+      err += d;
+      if (!capture) process.stderr.write(d);
+    });
+    p.on("close", (code) => {
+      if (code === 0) return res({ out, err });
+      const lines = err.split("\n").filter((l) => /error|invalid|no such|failed|unable/i.test(l));
+      rej(new Error(`${cmd} exited ${code}\n${(lines.length ? lines : err.split("\n").slice(-25)).join("\n")}`));
+    });
     p.on("error", rej);
   });
 }
@@ -199,7 +204,7 @@ async function doCaptions() {
 }
 
 /** Build the ffmpeg filter graph for the composite. */
-function buildGraph({ narrationDur, cards, previewTo }) {
+function buildGraph({ cards, captions }) {
   const W = T.output.width, H = T.output.height, FPS = T.output.fps;
   const f = [];
 
@@ -239,15 +244,20 @@ function buildGraph({ narrationDur, cards, previewTo }) {
     last = outLabel;
   });
 
-  // Captions.
+  // Captions are pre-rendered PNGs (render-captions.mjs): this ffmpeg build
+  // has neither libass nor drawtext, and browser-rendered text matches the
+  // title cards' typeface exactly.
+  captions.forEach((c, i) => {
+    const idx = 2 + cards.length + i;
+    const lbl = `cap${i}`;
+    f.push(`[${idx}:v]scale=${W}:${H},format=yuva420p,setsar=1[${lbl}]`);
+    const out = `capov${i}`;
+    f.push(
+      `[${last}][${lbl}]overlay=0:0:enable='between(t,${c.start.toFixed(3)},${c.end.toFixed(3)})'[${out}]`,
+    );
+    last = out;
+  });
   let vFinal = last;
-  if (T.captions?.enabled && existsSync(resolve(T.captions.srt))) {
-    const srt = resolve(T.captions.srt).replace(/([:'\\])/g, "\\$1");
-    f.push(`[${last}]subtitles='${srt}':force_style='FontName=Inter,Fontsize=${T.captions.fontSize},` +
-           `PrimaryColour=&H00FAFAFA,OutlineColour=&H90000000,BorderStyle=3,Outline=2,Shadow=0,` +
-           `MarginV=${T.captions.marginBottom}'[vout]`);
-    vFinal = "vout";
-  }
 
   // Audio: normalize the narration to a consistent broadcast loudness.
   f.push(`[0:a]loudnorm=I=${T.audio.narrationLoudnessLUFS}:TP=-1.5:LRA=11,aresample=48000[aout]`);
@@ -285,6 +295,14 @@ async function doRender() {
 
   const narrationDur = await duration(narration);
   const cards = collectCards();
+  const capManifest = resolve("work/caps/manifest.json");
+  const captions =
+    T.captions?.enabled && existsSync(capManifest)
+      ? JSON.parse(readFileSync(capManifest, "utf8"))
+      : [];
+  if (T.captions?.enabled && !captions.length) {
+    console.log("note: no caption frames found — run `node render-captions.mjs` for burned-in captions.\n");
+  }
   const unscheduled = T.segments.flatMap((s) => (s.cards ?? []).filter((c) => c.at == null));
   if (unscheduled.length) {
     console.log(`note: ${unscheduled.length} card(s) have no \`at\` yet and are omitted.`);
@@ -294,8 +312,13 @@ async function doRender() {
   const outPath = resolve(args.out ?? T.output.path);
   mkdirSync(dirname(outPath), { recursive: true });
 
-  const { filter, vLabel, aLabel } = buildGraph({ narrationDur, cards });
-  const inputs = ["-i", narration, "-i", screen, ...cards.flatMap((c) => ["-i", c.file])];
+  const { filter, vLabel, aLabel } = buildGraph({ cards, captions });
+  const inputs = [
+  "-i", narration,
+  "-i", screen,
+  ...cards.flatMap((c) => ["-i", c.file]),
+  ...captions.flatMap((c) => ["-i", c.file]),
+];
   const previewTo = args.preview ? ["-t", String(Number(args.preview))] : [];
 
   const ff = [
@@ -314,7 +337,7 @@ async function doRender() {
   ];
 
   console.log(`rendering ${outPath}`);
-  console.log(`  narration ${narrationDur.toFixed(1)}s · screen ${(await duration(screen)).toFixed(1)}s · ${cards.length} cards`);
+  console.log(`  narration ${narrationDur.toFixed(1)}s · screen ${(await duration(screen)).toFixed(1)}s · ${cards.length} cards · ${captions.length} captions`);
   if (args["dry-run"]) {
     console.log(`\nffmpeg ${ff.map((a) => (/[\s;']/.test(a) ? JSON.stringify(a) : a)).join(" ")}`);
     return;
