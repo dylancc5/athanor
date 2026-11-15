@@ -2,8 +2,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Bits";
-import { TOUR } from "@/lib/tour";
+import { CHAPTERS, TOUR, chapterOf } from "@/lib/tour";
 import { useCampaign } from "@/lib/store";
+
+/**
+ * Dims every panel except the one being narrated. Pass null to light them all.
+ * Done on the DOM rather than through React so no panel has to know about it.
+ */
+function spotlight(id: string | null) {
+  const root = document.getElementById("dashboard");
+  if (!root) return;
+  for (const el of root.querySelectorAll('[id^="panel-"]')) el.classList.remove("is-spot");
+  if (id === null) {
+    root.dataset.spotlight = "off";
+    return;
+  }
+  document.getElementById(id)?.classList.add("is-spot");
+  root.dataset.spotlight = "on";
+}
 
 /**
  * Drives itself through the campaign: watches the cursor, fires the first
@@ -32,6 +48,7 @@ export function TourOverlay() {
     if (!tour) {
       fired.current = new Set();
       setHolding(false);
+      spotlight(null);
     }
   }, [tour]);
 
@@ -57,8 +74,9 @@ export function TourOverlay() {
     if (beat.focus) {
       document
         .getElementById(beat.focus)
-        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
+    spotlight(beat.focus ?? null);
     setTourCaption({ title: beat.title, body }, TOUR.indexOf(beat));
 
     // hold the replay for as long as the caption needs to be read
@@ -91,6 +109,7 @@ export function TourOverlay() {
 
   useEffect(
     () => () => {
+      spotlight(null);
       if (timer.current !== null) {
         clearTimeout(timer.current);
         timer.current = null;
@@ -102,7 +121,7 @@ export function TourOverlay() {
   if (!tour || !caption) return null;
 
   // from the store, not the ref — a ref would never re-render the counter
-  const progress = `${Math.max(0, tourStep) + 1}/${TOUR.length}`;
+  const chapter = chapterOf(TOUR[tourStep]?.id);
 
   return (
     <div className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-5">
@@ -110,19 +129,44 @@ export function TourOverlay() {
         key={caption.title}
         role="status"
         aria-live="polite"
-        className="rise-in pointer-events-auto w-full max-w-3xl border border-rule-bright bg-panel/95 shadow-[0_-8px_40px_rgba(0,0,0,0.55)] backdrop-blur"
+        className="rise-in pointer-events-auto w-full max-w-4xl border border-rule-bright bg-panel/95 shadow-[0_-8px_40px_rgba(0,0,0,0.55)] backdrop-blur"
       >
         <div className="h-px w-full bg-gradient-to-r from-accent via-accent/40 to-transparent" />
         <div className="flex items-start gap-4 px-4 py-3">
           <div className="flex min-w-0 flex-col gap-1.5">
-            <div className="flex items-baseline gap-2">
-              <span className="label text-accent">Guided tour</span>
-              <span className="num text-[0.6875rem] text-ink-faint">{progress}</span>
-            </div>
-            <h3 className="text-[1.0625rem] font-medium leading-snug tracking-tight text-ink">
+            <ol aria-label="Story chapters" className="flex flex-wrap items-center gap-1">
+              {CHAPTERS.map((c, i) => (
+                <li
+                  key={c.title}
+                  aria-current={i === chapter ? "step" : undefined}
+                  className={`flex items-center gap-1 text-[0.6875rem] transition-colors ${
+                    i === chapter ? "text-accent" : i < chapter ? "text-ink-dim" : "text-ink-faint/60"
+                  }`}
+                >
+                  <span
+                    className={`num flex h-4 w-4 items-center justify-center rounded-full border text-[0.5625rem] ${
+                      i === chapter
+                        ? "border-accent bg-accent/20"
+                        : i < chapter
+                          ? "border-ink-dim/50 bg-ink-dim/10"
+                          : "border-rule-bright"
+                    }`}
+                  >
+                    {i < chapter ? "✓" : i + 1}
+                  </span>
+                  {c.title}
+                  {i < CHAPTERS.length - 1 ? (
+                    <span aria-hidden className="mx-1 text-ink-faint/40">
+                      —
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+            <h3 className="text-[1.375rem] font-medium leading-snug tracking-tight text-ink">
               {caption.title}
             </h3>
-            <p className="text-[0.9375rem] leading-[1.6] text-ink-dim">{caption.body}</p>
+            <p className="text-[1rem] leading-[1.6] text-ink-dim">{caption.body}</p>
           </div>
           <div className="flex shrink-0 flex-col gap-1.5">
             <Button

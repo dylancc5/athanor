@@ -106,6 +106,8 @@ interface CampaignStore {
   /** resolved artifact payloads, by artifact id */
   artifactPayloads: Record<string, unknown>;
 
+  /** the results-first landing card shown over the dashboard on arrival */
+  intro: boolean;
   tour: boolean;
   tourStep: number;
   tourCaption: { title: string; body: string } | null;
@@ -135,6 +137,7 @@ interface CampaignStore {
   ensureArtifact: (artifact: Artifact) => void;
   requestCampaign: (goal: string) => Promise<void>;
   dismissNotice: () => void;
+  setIntro: (on: boolean) => void;
   setTour: (on: boolean) => void;
   setTourCaption: (c: { title: string; body: string } | null, step: number) => void;
 }
@@ -197,6 +200,7 @@ export const useCampaign = create<CampaignStore>((set, get) => {
     selectedCandidateId: null,
     selectedHypothesisId: null,
     artifactPayloads: {},
+    intro: false,
     tour: false,
     tourStep: -1,
     tourCaption: null,
@@ -422,6 +426,10 @@ export const useCampaign = create<CampaignStore>((set, get) => {
 
     dismissNotice() {
       set({ publicDemoNotice: false });
+    },
+
+    setIntro(on) {
+      set({ intro: on });
     },
 
     setTour(on) {

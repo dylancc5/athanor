@@ -1,6 +1,7 @@
 "use client";
 
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { GLOSSARY } from "@/lib/glossary";
 
 export function Chip({
   children,
@@ -158,6 +159,59 @@ export function ConfidenceBar({ value }: { value: number }) {
         />
       </span>
       <span className="num text-[0.6875rem] text-ink-faint">{pct.toFixed(2)}</span>
+    </span>
+  );
+}
+
+/**
+ * A number that counts up to its value when it first appears or changes.
+ * Skips the animation under prefers-reduced-motion.
+ */
+export function CountUp({
+  value,
+  format = (v) => String(Math.round(v)),
+  durationMs = 900,
+}: {
+  value: number;
+  format?: (v: number) => string;
+  durationMs?: number;
+}) {
+  const [shown, setShown] = useState(value);
+  const from = useRef(0);
+
+  useEffect(() => {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const start = from.current;
+    from.current = value;
+    if (reduce || start === value) {
+      setShown(value);
+      return;
+    }
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - t0) / durationMs);
+      const eased = 1 - Math.pow(1 - k, 3);
+      setShown(start + (value - start) * eased);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, durationMs]);
+
+  return <>{format(shown)}</>;
+}
+
+/** A property name with its plain-English meaning on hover. */
+export function Term({ property, children }: { property: string; children: ReactNode }) {
+  const meaning = GLOSSARY[property];
+  if (!meaning) return <>{children}</>;
+  return (
+    <span
+      title={meaning}
+      className="cursor-help underline decoration-ink-faint/60 decoration-dotted underline-offset-4"
+    >
+      {children}
     </span>
   );
 }

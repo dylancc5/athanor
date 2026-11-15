@@ -3,7 +3,9 @@
 import { useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
+import { AgentLoop } from "@/components/panels/AgentLoop";
 import { GoalPanel } from "@/components/panels/GoalPanel";
+import { Hero } from "@/components/panels/Hero";
 import { HypothesisBoard } from "@/components/panels/HypothesisBoard";
 import { LedgerPanel } from "@/components/panels/LedgerPanel";
 import { MeasurementsTable } from "@/components/panels/MeasurementsTable";
@@ -12,6 +14,7 @@ import { ParetoPanel } from "@/components/panels/ParetoPanel";
 import { ProposalPanel } from "@/components/panels/ProposalPanel";
 import { Timeline } from "@/components/panels/Timeline";
 import { TourOverlay } from "@/components/panels/TourOverlay";
+import { VerdictMoment } from "@/components/panels/VerdictMoment";
 import { Button } from "@/components/ui/Bits";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { disposeCampaignStore, useCampaign } from "@/lib/store";
@@ -177,7 +180,11 @@ function useTransportKeys() {
   }, []);
 }
 
-/** Reads `?campaign=&seq=&view=&tour=1` once, then keeps the URL in step. */
+/**
+ * Reads `?campaign=&seq=&view=&tour=1&intro=0` once, then keeps the URL in step.
+ * A plain visit lands on the results card with the dashboard parked at the end
+ * of the log behind it; a deep link to a moment or the tour skips the card.
+ */
 function useDeepLink() {
   const params = useSearchParams();
   const sourceStatus = useCampaign((s) => s.sourceStatus);
@@ -185,6 +192,7 @@ function useDeepLink() {
   const loadCampaign = useCampaign((s) => s.loadCampaign);
   const setView = useCampaign((s) => s.setView);
   const setTour = useCampaign((s) => s.setTour);
+  const setIntro = useCampaign((s) => s.setIntro);
   const applied = useRef(false);
 
   // restore
@@ -197,10 +205,13 @@ function useDeepLink() {
     const view = params.get("view");
     const seqParam = params.get("seq");
     const wantTour = params.get("tour") === "1";
+    const wantIntro = !wantTour && seqParam === null && params.get("intro") !== "0";
 
     if (isViewName(view)) setView(view);
+    if (wantIntro) setIntro(true);
 
-    void loadCampaign(id, { play: wantTour || seqParam === null }).then(() => {
+    void loadCampaign(id, { play: wantTour }).then(() => {
+      if (wantIntro) useCampaign.getState().jumpToEnd();
       if (seqParam !== null) {
         const seq = Number(seqParam);
         if (Number.isFinite(seq)) {
@@ -216,7 +227,7 @@ function useDeepLink() {
       }
       if (wantTour) setTour(true);
     });
-  }, [sourceStatus, campaigns, params, loadCampaign, setView, setTour]);
+  }, [sourceStatus, campaigns, params, loadCampaign, setView, setTour, setIntro]);
 
   // keep the address bar shareable while paused
   const campaignId = useCampaign((s) => s.campaignId);
@@ -224,21 +235,25 @@ function useDeepLink() {
   const view = useCampaign((s) => s.view);
   const playing = useCampaign((s) => s.playing);
   const events = useCampaign((s) => s.events);
+  const intro = useCampaign((s) => s.intro);
 
   useEffect(() => {
-    if (!applied.current || playing || !campaignId) return;
+    // While the landing card is up the address stays bare, so a reload lands
+    // on the card again instead of deep-linking past it.
+    if (!applied.current || playing || intro || !campaignId) return;
     const next = new URLSearchParams(window.location.search);
     next.set("campaign", campaignId);
     next.set("view", view);
     if (cursor > 0 && events[cursor - 1]) next.set("seq", String(events[cursor - 1].seq));
     else next.delete("seq");
     window.history.replaceState(null, "", `?${next.toString()}`);
-  }, [campaignId, cursor, view, playing, events]);
+  }, [campaignId, cursor, view, playing, intro, events]);
 }
 
 export function AppShell() {
   const init = useCampaign((s) => s.init);
   const loadError = useCampaign((s) => s.loadError);
+  const intro = useCampaign((s) => s.intro);
   useDeepLink();
   useTransportKeys();
 
@@ -268,8 +283,12 @@ export function AppShell() {
         tabIndex={-1}
         className="instrument-grid min-h-0 flex-1 overflow-y-auto overflow-x-clip p-2.5 focus:outline-none"
       >
-        <div className="mx-auto flex min-h-full max-w-[1800px] flex-col gap-2.5">
+        <div
+          id="dashboard"
+          className="mx-auto flex min-h-full max-w-[1800px] flex-col gap-2.5"
+        >
           <Timeline />
+          <AgentLoop />
 
           {/* One column on a phone, two from `lg`, three from `xl`. The viewer
               column drops under the other two at `lg` and lays its own panels
@@ -295,10 +314,14 @@ export function AppShell() {
 
             {/* right: what it is thinking and what it is looking at */}
             <div className="order-3 grid min-h-0 min-w-0 grid-cols-1 content-start gap-2.5 lg:order-none lg:col-span-2 lg:grid-cols-2 xl:col-span-1 xl:flex xl:flex-col">
-              <div className="h-[clamp(20rem,44vh,27rem)] shrink-0 lg:row-span-2 lg:h-auto lg:min-h-[26rem] xl:h-[clamp(20rem,44vh,27rem)] xl:min-h-0">
-                <ErrorBoundary label="viewer-host">
-                  <Viewer />
-                </ErrorBoundary>
+              {/* the structure is the most striking thing on screen, so it gets room */}
+              <div className="h-[clamp(22rem,52vh,34rem)] shrink-0 lg:row-span-2 lg:h-auto lg:min-h-[30rem] xl:h-[clamp(22rem,52vh,34rem)] xl:min-h-0">
+                {/* the landing card runs its own viewer; one WebGL context at a time */}
+                {intro ? null : (
+                  <ErrorBoundary label="viewer-host">
+                    <Viewer />
+                  </ErrorBoundary>
+                )}
               </div>
               <ParetoPanel />
               <div className="flex min-h-[18rem] flex-1 flex-col [&>section]:flex-1">
@@ -310,6 +333,8 @@ export function AppShell() {
       </main>
 
       <TourOverlay />
+      <VerdictMoment />
+      <Hero />
     </div>
   );
 }

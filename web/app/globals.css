@@ -354,7 +354,71 @@ h3 {
   animation: pulse-ring 1.6s ease-out infinite;
 }
 
+/* --- demo: landing glow, story spotlight, verdict moment ----------------- */
+
+.hero-glow {
+  background:
+    radial-gradient(60% 50% at 75% 45%, rgba(56, 189, 248, 0.14), transparent 70%),
+    radial-gradient(40% 40% at 15% 20%, rgba(167, 139, 250, 0.08), transparent 70%);
+}
+
+/* During the story, every panel but the one being narrated steps back. */
+[data-spotlight] [id^="panel-"] {
+  transition:
+    opacity 450ms ease,
+    filter 450ms ease,
+    box-shadow 450ms ease;
+}
+[data-spotlight="on"] [id^="panel-"]:not(.is-spot) {
+  opacity: 0.22;
+  filter: saturate(0.3);
+}
+[data-spotlight="on"] [id^="panel-"].is-spot {
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.55),
+    0 0 40px -6px rgba(56, 189, 248, 0.35);
+}
+
+@keyframes verdict-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.96);
+  }
+  12%,
+  85% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.verdict-drop {
+  animation: verdict-drop 4.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes agent-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+.agent-pulse {
+  animation: agent-pulse 1.4s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .verdict-drop,
+  .agent-pulse {
+    animation: none;
+  }
+
   .verdict-strike,
   .rise-in,
   .panel-enter,

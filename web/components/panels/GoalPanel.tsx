@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Panel } from "@/components/ui/Panel";
-import { Button, Chip } from "@/components/ui/Bits";
+import { Button, Chip, Term } from "@/components/ui/Bits";
 import { fmtConstraint } from "@/lib/format";
 import { useCampaign } from "@/lib/store";
 
@@ -54,7 +54,9 @@ function SpecView() {
               className="flex items-center justify-between gap-3 px-2.5 py-2"
             >
               <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-[0.8125rem] leading-snug text-ink">{o.label}</span>
+                <span className="text-[0.8125rem] leading-snug text-ink">
+                  <Term property={o.property}>{o.label}</Term>
+                </span>
                 <span className="num break-all text-[0.6875rem] text-ink-faint">
                   {o.property} · {o.unit}
                   {o.target !== null && o.target !== undefined

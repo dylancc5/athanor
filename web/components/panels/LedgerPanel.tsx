@@ -1,7 +1,7 @@
 "use client";
 
 import { Panel, EmptyNote } from "@/components/ui/Panel";
-import { Metric } from "@/components/ui/Bits";
+import { CountUp, Metric } from "@/components/ui/Bits";
 import { fmtCpuHours, fmtDuration, fmtNumber } from "@/lib/format";
 import { useCampaign } from "@/lib/store";
 
@@ -38,25 +38,25 @@ export function LedgerPanel() {
             <Metric
               label="Screened"
               tick
-              value={fmtNumber(l.candidates_generated ?? 0)}
+              value={<CountUp value={l.candidates_generated ?? 0} format={fmtNumber} />}
               hint="candidates generated across every round"
             />
             <Metric
               label="Vetoed"
               tick
-              value={fmtNumber(l.candidates_vetoed ?? 0)}
+              value={<CountUp value={l.candidates_vetoed ?? 0} format={fmtNumber} />}
               hint="rejected by the skeptic before any compute was spent"
             />
             <Metric
               label="Measurements"
               tick
-              value={fmtNumber(l.measurements ?? 0)}
+              value={<CountUp value={l.measurements ?? 0} format={fmtNumber} />}
               hint="individual property values recorded"
             />
             <Metric
               label="Model calls"
               tick
-              value={fmtNumber(l.llm_calls ?? 0)}
+              value={<CountUp value={l.llm_calls ?? 0} format={fmtNumber} />}
               hint={`${fmtNumber(ledger?.llm_input_tokens ?? 0)} in / ${fmtNumber(ledger?.llm_output_tokens ?? 0)} out tokens`}
             />
             <Metric
@@ -75,7 +75,7 @@ export function LedgerPanel() {
             <div className="rise-in border border-accent/25 bg-accent/5 px-3 py-2.5">
               <p className="text-[0.875rem] leading-relaxed text-ink">
                 The same screen with DFT would have cost{" "}
-                <span className="num text-accent">~{fmtCpuHours(dft)} CPU-hours</span>.
+                <span className="num text-accent">~<CountUp value={dft} format={fmtCpuHours} durationMs={1400} /> CPU-hours</span>.
                 This campaign took{" "}
                 <span className="num text-accent">{fmtDuration(wall)}</span> on one
                 machine.

@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Panel, EmptyNote } from "@/components/ui/Panel";
-import { Chip, ConfidenceBar, FlagDot } from "@/components/ui/Bits";
+import { Button, Chip, ConfidenceBar, FlagDot, Term } from "@/components/ui/Bits";
 import { fmtValue, titleCase } from "@/lib/format";
 import { measuredProperties, paretoRankMap } from "@/lib/campaign-state";
 import { useCampaign } from "@/lib/store";
@@ -23,6 +23,11 @@ export function MeasurementsTable() {
   }, [state.spec]);
 
   const rows = state.candidateIds.filter((id) => state.measurements[id]);
+  // Lead with the frontier; the rest is one click away.
+  const [showAll, setShowAll] = useState(false);
+  const PREVIEW = 3;
+  const ordered = [...rows].sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
+  const visible = showAll ? ordered : ordered.slice(0, PREVIEW);
   // A property that is not a spec objective (energy per atom) has no label
   // entry, so its unit comes from the first measurement that carries one.
   const unitOf = (p: string) =>
@@ -96,7 +101,9 @@ export function MeasurementsTable() {
                     className="px-3 py-2.5 text-right align-bottom font-normal"
                     title={unitOf(p) ? `${full} (${unitOf(p)})` : full}
                   >
-                    <span className="label block leading-tight">{short}</span>
+                    <span className="label block leading-tight">
+                      <Term property={p}>{short}</Term>
+                    </span>
                     {unitOf(p) ? (
                       <span className="num mt-1 block text-[0.6875rem] text-ink-faint">
                         {unitOf(p)}
@@ -108,7 +115,7 @@ export function MeasurementsTable() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((id) => {
+            {visible.map((id) => {
               const c = state.candidates[id];
               const isSel = selected === id;
               const rank = ranks[id];
@@ -208,6 +215,13 @@ export function MeasurementsTable() {
             ))}
           </tbody>
         </table>
+        {rows.length > PREVIEW ? (
+          <div className="flex justify-center border-t border-rule/60 py-2">
+            <Button size="sm" onClick={() => setShowAll(!showAll)}>
+              {showAll ? "Show top 3" : `Show all ${rows.length}`}
+            </Button>
+          </div>
+        ) : null}
         </div>
       )}
     </Panel>

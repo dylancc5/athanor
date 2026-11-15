@@ -234,3 +234,22 @@ export const TOUR: TourBeat[] = [
     dwellMs: 11000,
   },
 ];
+
+/**
+ * The tour's beats grouped into the acts a viewer follows: what was asked,
+ * what it guessed, who pushed back, what it measured, what it concluded, and
+ * what it hands back.
+ */
+export const CHAPTERS: { title: string; beats: string[] }[] = [
+  { title: "Goal", beats: ["goal", "spec"] },
+  { title: "Hypothesis", beats: ["hypothesis"] },
+  { title: "Skeptic", beats: ["skeptic"] },
+  { title: "Measure", beats: ["measurements", "structure", "neb", "pareto"] },
+  { title: "Verdict", beats: ["verdict", "heuristics", "controller"] },
+  { title: "Result", beats: ["ledger", "proposal", "done"] },
+];
+
+export function chapterOf(beatId: string | undefined): number {
+  if (!beatId) return -1;
+  return CHAPTERS.findIndex((c) => c.beats.includes(beatId));
+}
