@@ -120,6 +120,14 @@ export function Hero() {
     null,
   );
   const bestName = best ? (final.candidates[best.candidate_id]?.name ?? best.candidate_id) : null;
+  // The headline number must carry the same caveats as the table it comes
+  // from. Surfacing a flagged value bare on the landing card would undercut
+  // the one thing this product claims over every other screening tool.
+  const bestCaveat = best
+    ? [best.ood_flag ? "out of distribution" : null, best.is_proxy ? "proxy" : null]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
   const domain = final.spec.domain.replace(/_/g, " ");
 
   const watch = () => {
@@ -173,7 +181,7 @@ export function Hero() {
                       <span className="ml-1.5 text-[1rem] text-ink-faint">eV</span>
                     </>
                   }
-                  label={`best Li migration barrier · ${bestName}`}
+                  label={`best Li migration barrier · ${bestName}${bestCaveat ? ` · ${bestCaveat}` : ""}`}
                   property="migration_barrier"
                 />
               ) : null}
@@ -184,7 +192,7 @@ export function Hero() {
                       ~<CountUp value={dft} format={(v) => fmtNumber(v)} />
                     </>
                   }
-                  label="CPU-hours of DFT it didn't need"
+                  label="CPU-hours of DFT avoided · estimated"
                 />
               ) : null}
             </div>
@@ -216,7 +224,7 @@ export function Hero() {
         {dft > 0 ? (
           <p className="max-w-3xl border-t border-rule pt-5 text-[0.9375rem] leading-relaxed text-ink-dim">
             <span className="text-ink">Why it matters:</span> screening these candidates
-            with DFT, the standard method, would take roughly{" "}
+            with DFT, the standard method, would take an estimated{" "}
             <span className="num text-accent">{fmtNumber(dft)} CPU-hours</span> on a
             cluster. ATHANOR did it in{" "}
             <span className="num text-accent">{fmtDuration(wall)}</span> with machine-learned

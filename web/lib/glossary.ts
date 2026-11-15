@@ -18,6 +18,10 @@ export const GLOSSARY: Record<string, string> = {
  * conductors sit well under 0.3 eV; above about 0.5 eV ions barely move at
  * room temperature.
  */
+// Conventional reading for Li-ion conductors: below ~0.3 eV is fast enough for
+// a practical solid electrolyte, 0.3-0.5 eV is workable but temperature-limited,
+// above ~0.5 eV is too sluggish at room temperature. Bands for orientation only —
+// the measured value and its flags are what the campaign actually reports.
 export const BARRIER_BANDS = [
   { upTo: 0.3, label: "fast", color: "#34d399" },
   { upTo: 0.5, label: "moderate", color: "#fbbf24" },

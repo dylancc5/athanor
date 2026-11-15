@@ -74,7 +74,7 @@ export function LedgerPanel() {
           {dft > 0 ? (
             <div className="rise-in border border-accent/25 bg-accent/5 px-3 py-2.5">
               <p className="text-[0.875rem] leading-relaxed text-ink">
-                The same screen with DFT would have cost{" "}
+                The same screen with DFT would have cost an estimated{" "}
                 <span className="num text-accent">~<CountUp value={dft} format={fmtCpuHours} durationMs={1400} /> CPU-hours</span>.
                 This campaign took{" "}
                 <span className="num text-accent">{fmtDuration(wall)}</span> on one
