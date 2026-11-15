@@ -9,11 +9,11 @@
       "completed": true
     },
     {
-      "id": "li-live",
-      "title": "Li electrolyte: low barrier, Li-stable",
-      "goal": "Find a solid-state lithium electrolyte with a low Li migration barrier that stays stable against a lithium metal anode.",
-      "domain": "solid_electrolyte",
-      "n_events": 4329,
+      "id": "mof-deep",
+      "title": "Low-heat water-harvesting MOF",
+      "goal": "Find a metal-organic framework that can harvest drinking water from dry desert air and release it again with as little heat as possible.",
+      "domain": "mof_water",
+      "n_events": 6575,
       "completed": true
     }
   ]

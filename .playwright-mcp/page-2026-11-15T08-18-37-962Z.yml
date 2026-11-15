@@ -1,0 +1,81 @@
+- generic [active] [ref=f17e1]:
+  - generic [ref=f17e2]:
+    - link "Skip to the campaign" [ref=f17e3] [cursor=pointer]:
+      - /url: "#main"
+    - banner [ref=f17e4]:
+      - generic [ref=f17e5]:
+        - heading "ATHANOR" [level=1] [ref=f17e6]
+        - generic [ref=f17e7]: autonomous research campaigns
+      - generic [ref=f17e8]:
+        - button "Tour" [ref=f17e10]
+        - generic "replaying recorded campaigns from static files — no backend required" [ref=f17e11]: connecting…
+    - main [ref=f17e13]:
+      - generic [ref=f17e14]:
+        - group "Replay controls" [ref=f17e16]:
+          - generic [ref=f17e17]:
+            - button "Play" [ref=f17e18]
+            - button "Prev" [disabled] [ref=f17e19]
+            - button "Next" [ref=f17e20]
+            - button "Restart" [ref=f17e21]
+            - group "Replay speed" [ref=f17e23]:
+              - button "0.5×" [ref=f17e24]
+              - button "1×" [pressed] [ref=f17e25]
+              - button "2×" [ref=f17e26]
+              - button "4×" [ref=f17e27]
+            - button "End" [ref=f17e29]
+            - generic [ref=f17e30]:
+              - generic [ref=f17e31]: event 0 of 0
+              - generic "campaign time elapsed" [ref=f17e32]: 0:00elapsed
+          - slider "Campaign timeline" [ref=f17e34] [cursor=pointer]: "0"
+          - generic [ref=f17e35]:
+            - generic [ref=f17e36]: Start of campaign
+            - generic [ref=f17e37]:
+              - list "Timeline marks"
+              - generic [ref=f17e38]: paused
+        - generic [ref=f17e39]:
+          - generic [ref=f17e40]:
+            - region "Research goal" [ref=f17e41]:
+              - generic [ref=f17e43]:
+                - heading "Research goal" [level=2] [ref=f17e44]
+                - generic [ref=f17e45]: intake
+              - generic [ref=f17e46]:
+                - generic [ref=f17e47]:
+                  - generic [ref=f17e48]: Your goal, in one sentence
+                  - textbox "Your goal, in one sentence" [ref=f17e49]:
+                    - /placeholder: e.g. a solid electrolyte with a low Li migration barrier that survives a lithium metal anode…
+                  - generic [ref=f17e50]:
+                    - generic [ref=f17e51]:
+                      - generic [ref=f17e52]: ⌘ Enter
+                      - text: to run
+                    - button "Run campaign" [disabled] [ref=f17e54]
+                - generic [ref=f17e55]:
+                  - generic [ref=f17e56]: Awaiting intake
+                  - paragraph [ref=f17e57]: The goal is parsed into objectives with units and directions, plus hard constraints, before any compute is spent.
+            - region "Compute ledger" [ref=f17e58]:
+              - generic [ref=f17e60]:
+                - heading "Compute ledger" [level=2] [ref=f17e61]
+                - generic [ref=f17e62]: provisional
+              - paragraph [ref=f17e65]: Nothing has been spent yet.
+          - generic [ref=f17e66]:
+            - region "Hypothesis board" [ref=f17e68]:
+              - generic [ref=f17e70]:
+                - heading "Hypothesis board" [level=2] [ref=f17e71]
+                - generic [ref=f17e72]: 0 proposed
+              - paragraph [ref=f17e75]: The strategist has not proposed a hypothesis yet. Each one arrives with a prediction and the condition that would kill it.
+            - region "Measurements" [ref=f17e77]:
+              - heading "Measurements" [level=2] [ref=f17e80]
+              - paragraph [ref=f17e83]: No measurements yet. Each one records its source, its method, and whether it is a proxy or an extrapolation.
+            - region "Experimental proposal" [ref=f17e84]:
+              - heading "Experimental proposal" [level=2] [ref=f17e87]
+              - paragraph [ref=f17e90]: "The campaign closes with a proposal a bench scientist could actually run: a synthesis route, a validation protocol, and the results that would prove it wrong."
+          - generic [ref=f17e91]:
+            - generic [ref=f17e93]:
+              - heading "Viewer" [level=2] [ref=f17e95]
+              - generic [ref=f17e96]: initializing renderer…
+            - region "Pareto frontier" [ref=f17e98]:
+              - heading "Pareto frontier" [level=2] [ref=f17e101]
+              - paragraph [ref=f17e104]: Candidates appear here once they have been scored on two objectives. Nothing is ranked until the measurements exist.
+            - region "Lab notebook" [ref=f17e106]:
+              - heading "Lab notebook" [level=2] [ref=f17e109]
+              - paragraph [ref=f17e112]: Every agent writes here as it reasons. The notebook is append-only, so the record of a wrong turn survives the turn.
+  - alert [ref=f17e113]

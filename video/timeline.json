@@ -2,12 +2,11 @@
   "_comment": [
     "The edit, as data. `edit.mjs` reads this and composes the final video with ffmpeg.",
     "Timings in seconds, measured against the NARRATION track (dylan.mov), because the",
-    "voice is the spine of the edit — screen footage is stretched/trimmed to fit it, not",
+    "voice is the spine of the edit \u2014 screen footage is stretched/trimmed to fit it, not",
     "the other way round. Fill `at` values after the narration take exists; run",
     "`node edit.mjs --probe` to print the narration's duration and silence gaps, which is",
     "the fastest way to find the real section boundaries."
   ],
-
   "output": {
     "path": "out/athanor-demo.mp4",
     "width": 1920,
@@ -16,7 +15,6 @@
     "videoBitrate": "12M",
     "audioBitrate": "256k"
   },
-
   "sources": {
     "narration": "input/dylan.mov",
     "screen": "work/tour-li.webm",
@@ -26,7 +24,6 @@
     ],
     "cards": "work/cards"
   },
-
   "pip": {
     "_comment": "Dylan, bottom-right. `scale` is a fraction of frame width.",
     "scale": 0.22,
@@ -35,7 +32,6 @@
     "cornerRadius": 18,
     "position": "bottom-right"
   },
-
   "audio": {
     "_comment": "Narration is the only speech. Music optional; ducked hard under section 5.",
     "narrationLoudnessLUFS": -16,
@@ -43,14 +39,19 @@
     "musicGainDb": -22,
     "duckUnderNarrationDb": -9
   },
-
   "segments": [
     {
       "id": "cold-open",
       "_comment": "Full-screen card, then full-screen Dylan for the hook, then to screen.",
       "at": null,
       "cards": [
-        { "card": "title", "at": 0.0, "duration": 3.2, "mode": "fullscreen", "fade": 0.5 }
+        {
+          "card": "title",
+          "at": 0.0,
+          "duration": 3.2,
+          "mode": "fullscreen",
+          "fade": 0.5
+        }
       ],
       "dylanFullscreenUntil": 6.0
     },
@@ -58,15 +59,33 @@
       "id": "problem",
       "at": null,
       "cards": [
-        { "card": "problem", "at": null, "duration": 2.8, "mode": "fullscreen", "fade": 0.4 },
-        { "card": "cost", "at": null, "duration": 2.6, "mode": "fullscreen", "fade": 0.4 }
+        {
+          "card": "problem",
+          "at": null,
+          "duration": 2.8,
+          "mode": "fullscreen",
+          "fade": 0.4
+        },
+        {
+          "card": "cost",
+          "at": null,
+          "duration": 2.6,
+          "mode": "fullscreen",
+          "fade": 0.4
+        }
       ]
     },
     {
       "id": "what-it-does",
       "at": null,
       "cards": [
-        { "card": "loop", "at": null, "duration": 2.6, "mode": "fullscreen", "fade": 0.4 }
+        {
+          "card": "loop",
+          "at": null,
+          "duration": 2.6,
+          "mode": "fullscreen",
+          "fade": 0.4
+        }
       ]
     },
     {
@@ -74,36 +93,86 @@
       "at": null,
       "_comment": "Lower thirds composite over the footage as each agent is named.",
       "cards": [
-        { "card": "lt-strategist", "at": null, "duration": 3.0, "mode": "overlay", "fade": 0.3 },
-        { "card": "lt-generator", "at": null, "duration": 2.5, "mode": "overlay", "fade": 0.3 },
-        { "card": "lt-skeptic", "at": null, "duration": 3.0, "mode": "overlay", "fade": 0.3 },
-        { "card": "lt-analyst", "at": null, "duration": 3.0, "mode": "overlay", "fade": 0.3 },
-        { "card": "tech", "at": null, "duration": 4.0, "mode": "fullscreen", "fade": 0.5 }
+        {
+          "card": "lt-strategist",
+          "at": null,
+          "duration": 3.0,
+          "mode": "overlay",
+          "fade": 0.3
+        },
+        {
+          "card": "lt-generator",
+          "at": null,
+          "duration": 2.5,
+          "mode": "overlay",
+          "fade": 0.3
+        },
+        {
+          "card": "lt-skeptic",
+          "at": null,
+          "duration": 3.0,
+          "mode": "overlay",
+          "fade": 0.3
+        },
+        {
+          "card": "lt-analyst",
+          "at": null,
+          "duration": 3.0,
+          "mode": "overlay",
+          "fade": 0.3
+        },
+        {
+          "card": "tech",
+          "at": null,
+          "duration": 4.0,
+          "mode": "fullscreen",
+          "fade": 0.5
+        }
       ]
     },
     {
       "id": "demo",
       "at": null,
       "_comment": "The hero beat. REFUTED card must land on the word 'fails'. Hold the NEB animation >=5s.",
-      "heroHold": { "from": null, "to": null },
+      "heroHold": {
+        "from": null,
+        "to": null
+      },
       "cards": [
-        { "card": "refuted", "at": null, "duration": 2.4, "mode": "fullscreen", "fade": 0.3 },
-        { "card": "barrier", "at": null, "duration": 3.0, "mode": "fullscreen", "fade": 0.4 }
+        {
+          "card": "refuted",
+          "at": null,
+          "duration": 2.4,
+          "mode": "fullscreen",
+          "fade": 0.3
+        },
+        {
+          "card": "barrier",
+          "at": null,
+          "duration": 3.0,
+          "mode": "fullscreen",
+          "fade": 0.4
+        }
       ]
     },
     {
       "id": "close",
       "at": null,
       "cards": [
-        { "card": "close", "at": null, "duration": 5.0, "mode": "fullscreen", "fade": 0.6 }
+        {
+          "card": "close",
+          "at": null,
+          "duration": 5.0,
+          "mode": "fullscreen",
+          "fade": 0.6
+        }
       ],
       "dylanFullscreenFrom": null
     }
   ],
-
   "captions": {
     "_comment": "Burned in, since judges may watch muted. Generated from the narration by edit.mjs --transcribe, then hand-corrected in work/captions.srt.",
-    "enabled": true,
+    "enabled": false,
     "srt": "work/captions.srt",
     "fontSize": 30,
     "marginBottom": 72
