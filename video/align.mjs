@@ -282,6 +282,14 @@ function buildSrt(words, maxChars = 74) {
     }
   }
   if (cur.length) cues.push({ start, end: cur.at(-1).to, text: fixTerms(cur.map((x) => x.text).join(" ")) });
+
+  // Word timestamps can overlap across a cue boundary, and two caption frames
+  // drawn at once render as illegible stacked text. Clamp each cue to end
+  // before the next one begins.
+  for (let i = 0; i < cues.length - 1; i++) {
+    cues[i].end = Math.min(cues[i].end, cues[i + 1].start - 0.04);
+    if (cues[i].end <= cues[i].start) cues[i].end = cues[i].start + 0.3;
+  }
   return cues.map((c, i) => `${i + 1}\n${fmtSrt(c.start)} --> ${fmtSrt(c.end)}\n${c.text}\n`).join("\n");
 }
 
