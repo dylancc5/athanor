@@ -16,7 +16,7 @@
  */
 
 import { chromium } from "playwright";
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -34,6 +34,7 @@ const { values: args } = parseArgs({
     "lead-out": { type: "string", default: "2.5" },
     "hero-seconds": { type: "string", default: "14" },
     "hold-seconds": { type: "string", default: "25" },
+    timing: { type: "string" },
   },
 });
 
@@ -101,6 +102,17 @@ if (heroMs > 0) {
   console.log(`  holding on the landing card for ${args["hero-seconds"]}s`);
   await page.waitForTimeout(heroMs);
 }
+// Hold each tour beat for exactly as long as the narration spends on it, so
+// the footage lands on the voice at native speed instead of being stretched.
+if (args.timing) {
+  const t = JSON.parse(readFileSync(resolve(args.timing), "utf8"));
+  const dwell = t.dwell ?? {};
+  await page.evaluate((d) => { window.__athanorDwell = d; }, dwell);
+  const secs = Object.values(dwell).reduce((a, b) => a + b, 0) / 1000;
+  console.log(`  dwell from ${args.timing}: ${Object.keys(dwell).length} beats, ${secs.toFixed(0)}s of narration`);
+  if (t.total) console.log(`  narration runs ${t.total.toFixed(0)}s`);
+}
+
 const watch = page.getByRole("button", { name: /watch it think/i }).first();
 if (await watch.count()) {
   await watch.click();

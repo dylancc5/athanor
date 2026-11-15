@@ -59,13 +59,16 @@ The line to protect is "And here the prediction doesn't hold." — let it land d
 
 ## 6 · The close
 
-**SCREEN:** Proposal panel, compute ledger, then the campaign archetypes side by side.
+**SCREEN:** Proposal panel, compute ledger, campaign archetypes, then the roadmap slide (MatterGen · GNoME · UMA · ALCHEMI).
 
 **SAY:**
 > Every campaign ends with something a lab can act on: a synthesis route, a validation protocol, the properties that make the material a fit — and a clear statement of what the models can't see, which is what makes the rest of it trustworthy.
 
-> And the possibilities are wide open. The same loop designs frameworks that pull drinking water out of desert air, finds drug formulations that survive heat without refrigeration, and screens materials for clean energy. // ATHANOR is one interface over a whole stack of materials models — where your creativity is the limit on what you can ask for.
+> And the possibilities are wide open. The same loop designs frameworks that pull drinking water out of desert air, finds drug formulations that survive heat without refrigeration, and screens materials for clean energy.
 
+> Every model underneath is swappable, and that's the roadmap. Microsoft's MatterGen could invent candidates outright instead of perturbing known ones. DeepMind's GNoME opens a map of two million new crystals to search through. Meta's universal atomic models can replace the physics engine, and NVIDIA's ALCHEMI runs that physics a hundred times faster. //
+
+> ATHANOR is the loop — it gets better every time a frontier lab ships. One interface over a whole stack of materials models, where your creativity is the limit on what you can ask for.
 
 ---
 

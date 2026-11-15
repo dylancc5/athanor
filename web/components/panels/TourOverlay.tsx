@@ -26,6 +26,18 @@ function spotlight(id: string | null) {
  * matching beat, switches panels and 3D views, holds the replay while the
  * caption is on screen, then lets it run on. No interaction needed.
  */
+/**
+ * How long to hold a tour beat. Defaults to the beat's own `dwellMs`, but the
+ * screen recorder can override per beat via `window.__athanorDwell` so the
+ * footage lands on the narration without being retimed afterwards.
+ */
+function dwellFor(id: string, fallback: number): number {
+  const table = (window as unknown as { __athanorDwell?: Record<string, number> })
+    .__athanorDwell;
+  const v = table?.[id];
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
 export function TourOverlay() {
   const tour = useCampaign((s) => s.tour);
   const events = useCampaign((s) => s.events);
@@ -104,7 +116,11 @@ export function TourOverlay() {
       // At the end of the log `play()` rewinds to 0, which would wipe the
       // board under the closing caption. Stop instead.
       if (s.tour && s.cursor < s.events.length) play();
-    }, beat.dwellMs);
+      // `__athanorDwell` lets the screen recorder (video/record.mjs) hold each
+      // beat for exactly as long as the narration spends on it, so the cut is
+      // aligned to the voice at native playback speed rather than being
+      // stretched or frame-held in the edit afterwards.
+    }, dwellFor(beat.id, beat.dwellMs));
 
     // NO cleanup that clears `timer` here. This effect re-runs the moment
     // `setHolding(true)` lands, so a cleanup would cancel the dwell timer it

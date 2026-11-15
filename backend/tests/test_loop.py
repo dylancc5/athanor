@@ -1120,3 +1120,68 @@ async def test_decisive_property_is_measured_first_for_every_candidate(tmp_path)
     assert kinds.index("measurement.recorded") < kinds.index("scoring.started", 2)
     assert len(measurements) == 4
     assert campaign.ledger.candidates_scored == 2
+
+
+def test_substitution_rescales_the_cell_for_the_new_ion_size():
+    """Swapping a small anion for a large one in a fixed cell makes atoms
+    overlap. In a live run a full O -> S substitution left P and S 1.54 A apart
+    (0.73x the covalent-radius sum) and MACE returned a 4.3e8 eV barrier, which
+    the campaign correctly flagged OOD and voided -- costing the round."""
+    from ase import Atoms
+    from ase.data import atomic_numbers, covalent_radii
+
+    from athanor.loop.generator import apply_substitution
+    from athanor.structure import atoms_to_cif, parse_structure
+
+    # A tight phosphate-like oxide cell: the case that broke.
+    a = 4.2
+    atoms = Atoms(
+        "PO",
+        positions=[(0.0, 0.0, 0.0), (a / 2, 0.0, 0.0)],
+        cell=[a, a, a],
+        pbc=True,
+    )
+    parent = C.Candidate(
+        id="c-oxide", name="PO", formula="PO", structure=atoms_to_cif(atoms),
+        repr_kind="cif", domain="solid_electrolyte",
+        provenance=C.Provenance(source="retrieval", database="materials_project"),
+    )
+
+    child = apply_substitution(parent, "O", "S", 1.0, "c-sulfide")
+    assert "cell rescaled" in child.provenance.operation
+
+    grown = parse_structure(child.structure, "cif")
+    ref = covalent_radii[atomic_numbers["P"]] + covalent_radii[atomic_numbers["S"]]
+    dists = grown.get_all_distances(mic=True)
+    syms = grown.get_chemical_symbols()
+    closest = min(
+        dists[i][j]
+        for i in range(len(syms))
+        for j in range(len(syms))
+        if i < j and {syms[i], syms[j]} == {"P", "S"}
+    )
+    # The scorer's hard-OOD floor is 0.70x the covalent-radius sum.
+    assert closest / ref >= 0.70, f"{closest:.3f} A is {closest / ref:.2f}x the radius sum"
+    assert grown.get_volume() > parse_structure(parent.structure, "cif").get_volume()
+
+
+def test_substitution_leaves_the_cell_alone_for_a_similar_radius():
+    """The rescale must not fire when it is not needed: a near-equal swap keeps
+    the parent's lattice, so the comparison stays controlled."""
+    from ase.build import bulk
+
+    from athanor.loop.generator import apply_substitution
+    from athanor.structure import atoms_to_cif, parse_structure
+
+    # Al and Ga have near-identical covalent radii (1.21 vs 1.22 A).
+    atoms = bulk("Al", "fcc", a=4.05, cubic=True)
+    parent = C.Candidate(
+        id="c-al", name="Al", formula="Al", structure=atoms_to_cif(atoms),
+        repr_kind="cif", domain="solid_electrolyte",
+        provenance=C.Provenance(source="retrieval", database="materials_project"),
+    )
+    child = apply_substitution(parent, "Al", "Ga", 1.0, "c-ga")
+    assert "cell rescaled" not in child.provenance.operation
+    before = parse_structure(parent.structure, "cif").get_volume()
+    after = parse_structure(child.structure, "cif").get_volume()
+    assert abs(after / before - 1.0) < 1e-6

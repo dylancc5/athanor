@@ -29,6 +29,7 @@ import logging
 import math
 from collections.abc import Callable
 
+import numpy as np
 from pydantic import BaseModel, Field
 
 from ..contracts import (
@@ -184,6 +185,18 @@ def select_informative(
 # --------------------------------------------------------------------------
 
 
+def _mean_covalent_radius(symbols: list[str]) -> float:
+    """Mean covalent radius of a symbol list, used to rescale a substituted cell."""
+    from ase.data import atomic_numbers, covalent_radii
+
+    radii = [
+        float(covalent_radii[atomic_numbers[s]])
+        for s in symbols
+        if s in atomic_numbers and covalent_radii[atomic_numbers[s]] > 0
+    ]
+    return sum(radii) / len(radii) if radii else 0.0
+
+
 def apply_substitution(
     parent: Candidate, element_out: str, element_in: str, fraction: float, child_id: str
 ) -> Candidate:
@@ -200,15 +213,35 @@ def apply_substitution(
     fraction = min(max(fraction, 0.0), 1.0)
     count = max(1, round(fraction * len(indices)))
     count = min(count, len(indices))
+    before = _mean_covalent_radius(symbols)
     for i in indices[:count]:
         symbols[i] = element_in
     atoms.set_chemical_symbols(symbols)
+
+    # Rescale the cell for the new ion size. Swapping species in place leaves the
+    # lattice at the parent's dimensions, which is fine for similar radii and
+    # catastrophic otherwise: a full O -> S substitution on an oxide cell put P
+    # and S 1.54 A apart (0.73x the covalent-radius sum), and MACE returned a
+    # 4.3e8 eV barrier on the overlapping geometry. The campaign flagged it OOD
+    # and voided it rather than reporting it — honest, but the round was still
+    # wasted. An isotropic scale by the ratio of mean covalent radii preserves
+    # the packing fraction and hands the scorer a sane starting point; the
+    # scorer's own relaxation does the rest, so this is a starting guess, not a
+    # claim about the relaxed structure.
+    after = _mean_covalent_radius(symbols)
+    scale = 1.0
+    if np.any(atoms.pbc) and before > 0 and after > 0:
+        scale = after / before
+        if abs(scale - 1.0) > 0.02:
+            atoms.set_cell(atoms.cell.array * scale, scale_atoms=True)
 
     actual = count / len(indices)
     operation = (
         f"substitute {actual * 100:.0f}% {element_out} -> {element_in} "
         f"({count} of {len(indices)} sites)"
     )
+    if abs(scale - 1.0) > 0.02:
+        operation += f", cell rescaled x{scale:.3f} for the new ion radius"
     return Candidate(
         id=child_id,
         name=reduced_formula(atoms),
